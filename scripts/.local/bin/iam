@@ -97,7 +97,6 @@ do_update() {
     need git stow
     require_gh_auth
 
-    info "Checking for updates..."
     gum spin --spinner dot --title "Checking for updates..." -- \
         git -C "$IAM_DIR" fetch "$REMOTE_URL" "$BRANCH" --quiet
     local behind
@@ -115,8 +114,13 @@ do_update() {
         echo
         gum confirm "Apply updates?" || { dim "Skipped."; return; }
 
-        # Discard any local changes (users shouldn't modify the repo)
-        git -C "$IAM_DIR" reset --hard "$REMOTE_URL/$BRANCH" --quiet
+        if has_push_access; then
+            # Maintainer / fork owner — preserve local changes
+            git -C "$IAM_DIR" pull --rebase "$REMOTE_URL" "$BRANCH"
+        else
+            # Consumer — clean reset to latest
+            git -C "$IAM_DIR" reset --hard "$REMOTE_URL/$BRANCH" --quiet
+        fi
         ok "Updated to latest version"
     fi
     echo
@@ -171,76 +175,6 @@ do_update() {
 
     echo
     ok "Update complete. You're running the latest I.A.M."
-}
-
-do_sync() {
-    header
-    need git stow
-
-    # Check for remote changes first
-    gum spin --spinner dot --title "Checking for updates..." -- \
-        git -C "$IAM_DIR" fetch "$REMOTE_URL" "$BRANCH" --quiet
-    local behind
-    behind=$(git -C "$IAM_DIR" rev-list --count HEAD.."$REMOTE_URL/$BRANCH" 2>/dev/null || echo 0)
-
-    if [[ "$behind" -eq 0 ]]; then
-        ok "Already up to date — no changes on remote"
-    else
-        info "$behind new commit(s) found"
-        git -C "$IAM_DIR" pull --rebase "$REMOTE_URL" "$BRANCH"
-        ok "Pulled latest changes"
-    fi
-    echo
-
-    # Always check for missing packages
-    local missing_pkgs=""
-    local pkg_manager="yay"
-    command -v yay &>/dev/null || pkg_manager="sudo pacman"
-
-    dim "Checking packages..."
-    for file in "$PACKAGES_DIR"/*.txt; do
-        [[ -f "$file" ]] || continue
-        while IFS= read -r pkg; do
-            [[ -z "$pkg" || "$pkg" == \#* ]] && continue
-            if ! pacman -Qi "$pkg" &>/dev/null; then
-                missing_pkgs+="$pkg "
-            fi
-        done < "$file"
-    done
-
-    if [[ -n "$missing_pkgs" ]]; then
-        local count
-        count=$(echo "$missing_pkgs" | wc -w | tr -d ' ')
-        info "Installing $count missing package(s)..."
-        echo
-        $pkg_manager -S --needed --noconfirm $missing_pkgs 2>&1 | \
-            while IFS= read -r line; do
-                dim "  $line"
-            done
-        echo
-        ok "Packages installed"
-    else
-        ok "All packages installed"
-    fi
-
-    # Restow all configs
-    cd "$IAM_DIR"
-    for pkg in "${STOW_PACKAGES[@]}"; do
-        [[ -d "$pkg" ]] || continue
-        stow --restow --target="$HOME" "$pkg" 2>/dev/null || true
-    done
-    ok "Configs applied"
-
-    # System configs
-    if [[ -d "$IAM_DIR/system/etc" ]]; then
-        gum confirm "Apply system configs (/etc)?" && {
-            sudo cp -r "$IAM_DIR/system/etc/"* /etc/ 2>/dev/null || true
-            ok "System configs deployed"
-        }
-    fi
-
-    echo
-    ok "Sync complete. System is up to date."
 }
 
 do_save() {
@@ -384,13 +318,15 @@ do_status() {
 main() {
     need gum
 
-    # Allow direct subcommand for scripting: iam sync, iam save, etc.
+    # Allow direct subcommand for scripting: iam update, iam save, etc.
     case "${1:-}" in
-        update) do_update; return ;;
-        sync)   do_sync;   return ;;
-        save)   do_save;   return ;;
-        add)    do_add;    return ;;
-        status) do_status; return ;;
+        update)  do_update;  return ;;
+        save)    do_save;    return ;;
+        track)   do_add;     return ;;
+        status)  do_status;  return ;;
+        # Legacy aliases
+        sync)    do_update;  return ;;
+        add)     do_add;     return ;;
     esac
 
     header
@@ -403,22 +339,21 @@ main() {
             --header "What do you want to do?" \
             --cursor.foreground "$RED" \
             --header.foreground "$DIM" \
-            "Sync       Pull latest & apply everything" \
-            "Save       Snapshot & push your changes" \
-            "Add        Adopt a new config file" \
-            "Status     See what's changed" \
+            "Update     Pull latest changes, install packages & apply configs" \
+            "Save       Snapshot your system and push changes to your repo" \
+            "Track      Start tracking a new config file or directory" \
+            "Status     Show sync state, local changes & version info" \
             "Quit")
 
         case "$choice" in
-            Sync*)   do_sync ;;
+            Update*) do_update ;;
             Save*)   do_save ;;
-            Add*)    do_add ;;
+            Track*)  do_add ;;
             Status*) do_status ;;
             *)       exit 0 ;;
         esac
     else
         # No push access — pull-only update mode
-        # Hint about forking if they're on the upstream repo
         if is_upstream; then
             dim "Read-only — fork on GitHub to save your own changes"
             echo
@@ -429,8 +364,8 @@ main() {
             --header "What do you want to do?" \
             --cursor.foreground "$RED" \
             --header.foreground "$DIM" \
-            "Update     Get the latest configs & packages" \
-            "Status     See current version info" \
+            "Update     Pull latest changes, install packages & apply configs" \
+            "Status     Show current version and check for updates" \
             "Quit")
 
         case "$choice" in

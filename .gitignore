@@ -17,3 +17,15 @@ Thumbs.db
 *.pem
 *.env
 credentials*
+**/token*
+**/hosts.yml
+
+# gh CLI auth (never ship tokens)
+shell/.config/gh/
+
+# atuin session keys
+shell/.config/atuin/key
+shell/.config/atuin/session
+
+# Fish variables (contains per-machine state)
+shell/.config/fish/fish_variables
