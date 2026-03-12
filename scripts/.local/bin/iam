@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # iam — Project I.A.M dotfile manager
-# Interactive TUI for syncing configs across machines
+# Maintainer: sync/save/push configs across your machines
+# User: pull updates, install packages, apply configs
 #
 set -euo pipefail
 
@@ -17,6 +18,7 @@ STOW_PACKAGES=(rice shell security scripts)
 PACKAGES_DIR="$IAM_DIR/packages"
 REMOTE_URL="origin"
 BRANCH="main"
+MAINTAINER="neur0map"
 
 RED="#a63d4f"
 DIM="#666666"
@@ -28,6 +30,47 @@ die()  { gum style --foreground "$RED" "  $*"; exit 1; }
 info() { gum style --foreground "$TEXT" "  $*"; }
 dim()  { gum style --foreground "$DIM" "  $*"; }
 ok()   { gum style --foreground 2 "  $*"; }
+
+has_push_access() {
+    local remote_url
+    remote_url=$(git -C "$IAM_DIR" remote get-url "$REMOTE_URL" 2>/dev/null || echo "")
+    [[ -z "$remote_url" ]] && return 1
+
+    # Extract owner/repo from URL (handles both https and ssh)
+    local repo_slug
+    repo_slug=$(echo "$remote_url" | sed -E 's#.*github\.com[:/]##; s/\.git$//')
+    [[ -z "$repo_slug" ]] && return 1
+
+    local permission
+    permission=$(gh api "repos/$repo_slug" --jq '.permissions.push' 2>/dev/null || echo "false")
+    [[ "$permission" == "true" ]]
+}
+
+is_upstream() {
+    local remote_url
+    remote_url=$(git -C "$IAM_DIR" remote get-url "$REMOTE_URL" 2>/dev/null || echo "")
+    # Check if the remote points to the original repo (not a fork)
+    echo "$remote_url" | grep -qi "$MAINTAINER/project-i-a-m"
+}
+
+require_gh_auth() {
+    if ! command -v gh &>/dev/null; then
+        die "GitHub CLI (gh) not found. Install with: sudo pacman -S github-cli"
+    fi
+    if ! gh auth status &>/dev/null; then
+        info "GitHub authentication required to receive updates."
+        echo
+        dim "Run: gh auth login"
+        echo
+        gum confirm "Open gh auth login now?" && {
+            gh auth login
+        } || die "Authentication required. Run 'gh auth login' and try again."
+        # Verify it worked
+        gh auth status &>/dev/null || die "Authentication failed. Try again."
+        ok "Authenticated with GitHub"
+        echo
+    fi
+}
 
 need() {
     for cmd in "$@"; do
@@ -48,6 +91,87 @@ header() {
 }
 
 # ── Actions ───────────────────────────────────────────────────────
+
+do_update() {
+    header
+    need git stow
+    require_gh_auth
+
+    info "Checking for updates..."
+    gum spin --spinner dot --title "Checking for updates..." -- \
+        git -C "$IAM_DIR" fetch "$REMOTE_URL" "$BRANCH" --quiet
+    local behind
+    behind=$(git -C "$IAM_DIR" rev-list --count HEAD.."$REMOTE_URL/$BRANCH" 2>/dev/null || echo 0)
+
+    if [[ "$behind" -eq 0 ]]; then
+        ok "Already up to date — you have the latest version"
+    else
+        info "$behind new update(s) available"
+        echo
+        dim "Changelog:"
+        git -C "$IAM_DIR" log --oneline HEAD.."$REMOTE_URL/$BRANCH" | while read -r line; do
+            dim "  $line"
+        done
+        echo
+        gum confirm "Apply updates?" || { dim "Skipped."; return; }
+
+        # Discard any local changes (users shouldn't modify the repo)
+        git -C "$IAM_DIR" reset --hard "$REMOTE_URL/$BRANCH" --quiet
+        ok "Updated to latest version"
+    fi
+    echo
+
+    # Install missing packages
+    local missing_pkgs=""
+    local pkg_manager="yay"
+    command -v yay &>/dev/null || pkg_manager="sudo pacman"
+
+    dim "Checking packages..."
+    for file in "$PACKAGES_DIR"/*.txt; do
+        [[ -f "$file" ]] || continue
+        while IFS= read -r pkg; do
+            [[ -z "$pkg" || "$pkg" == \#* ]] && continue
+            if ! pacman -Qi "$pkg" &>/dev/null; then
+                missing_pkgs+="$pkg "
+            fi
+        done < "$file"
+    done
+
+    if [[ -n "$missing_pkgs" ]]; then
+        local count
+        count=$(echo "$missing_pkgs" | wc -w | tr -d ' ')
+        info "Installing $count new package(s)..."
+        echo
+        # shellcheck disable=SC2086
+        $pkg_manager -S --needed --noconfirm $missing_pkgs 2>&1 | \
+            while IFS= read -r line; do
+                dim "  $line"
+            done
+        echo
+        ok "Packages installed"
+    else
+        ok "All packages installed"
+    fi
+
+    # Restow all configs
+    cd "$IAM_DIR"
+    for pkg in "${STOW_PACKAGES[@]}"; do
+        [[ -d "$pkg" ]] || continue
+        stow --restow --target="$HOME" "$pkg" 2>/dev/null || true
+    done
+    ok "Configs applied"
+
+    # System configs
+    if [[ -d "$IAM_DIR/system/etc" ]]; then
+        gum confirm "Apply system configs (/etc)?" && {
+            sudo cp -r "$IAM_DIR/system/etc/"* /etc/ 2>/dev/null || true
+            ok "System configs deployed"
+        }
+    fi
+
+    echo
+    ok "Update complete. You're running the latest I.A.M."
+}
 
 do_sync() {
     header
@@ -122,6 +246,8 @@ do_sync() {
 do_save() {
     header
     need git
+    require_gh_auth
+    has_push_access || die "No push access to this remote. Fork the repo on GitHub, update your remote, and try again."
 
     # Snapshot packages
     info "Snapshotting installed packages..."
@@ -172,6 +298,8 @@ do_save() {
 do_add() {
     header
     need stow
+    require_gh_auth
+    has_push_access || die "No push access to this remote. Fork the repo on GitHub, update your remote, and try again."
 
     local target
     target=$(gum input --placeholder "Path to adopt (e.g. ~/.config/ghostty)")
@@ -258,32 +386,59 @@ main() {
 
     # Allow direct subcommand for scripting: iam sync, iam save, etc.
     case "${1:-}" in
-        sync)   do_sync; return ;;
-        save)   do_save; return ;;
-        add)    do_add;  return ;;
+        update) do_update; return ;;
+        sync)   do_sync;   return ;;
+        save)   do_save;   return ;;
+        add)    do_add;    return ;;
         status) do_status; return ;;
     esac
 
     header
 
-    local choice
-    choice=$(gum choose \
-        --header "What do you want to do?" \
-        --cursor.foreground "$RED" \
-        --header.foreground "$DIM" \
-        "Sync       Pull latest & apply everything" \
-        "Save       Snapshot & push your changes" \
-        "Add        Adopt a new config file" \
-        "Status     See what's changed" \
-        "Quit")
+    # Show different menus based on push access
+    require_gh_auth
+    if has_push_access; then
+        local choice
+        choice=$(gum choose \
+            --header "What do you want to do?" \
+            --cursor.foreground "$RED" \
+            --header.foreground "$DIM" \
+            "Sync       Pull latest & apply everything" \
+            "Save       Snapshot & push your changes" \
+            "Add        Adopt a new config file" \
+            "Status     See what's changed" \
+            "Quit")
 
-    case "$choice" in
-        Sync*)   do_sync ;;
-        Save*)   do_save ;;
-        Add*)    do_add ;;
-        Status*) do_status ;;
-        *)       exit 0 ;;
-    esac
+        case "$choice" in
+            Sync*)   do_sync ;;
+            Save*)   do_save ;;
+            Add*)    do_add ;;
+            Status*) do_status ;;
+            *)       exit 0 ;;
+        esac
+    else
+        # No push access — pull-only update mode
+        # Hint about forking if they're on the upstream repo
+        if is_upstream; then
+            dim "Read-only — fork on GitHub to save your own changes"
+            echo
+        fi
+
+        local choice
+        choice=$(gum choose \
+            --header "What do you want to do?" \
+            --cursor.foreground "$RED" \
+            --header.foreground "$DIM" \
+            "Update     Get the latest configs & packages" \
+            "Status     See current version info" \
+            "Quit")
+
+        case "$choice" in
+            Update*) do_update ;;
+            Status*) do_status ;;
+            *)       exit 0 ;;
+        esac
+    fi
 }
 
 main "$@"
