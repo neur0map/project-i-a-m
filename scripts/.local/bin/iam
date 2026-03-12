@@ -53,36 +53,74 @@ do_sync() {
     header
     need git stow
 
-    gum spin --spinner dot --title "Pulling latest..." -- \
-        git -C "$IAM_DIR" pull --rebase "$REMOTE_URL" "$BRANCH"
-    ok "Pulled latest changes"
+    # Check for remote changes first
+    gum spin --spinner dot --title "Checking for updates..." -- \
+        git -C "$IAM_DIR" fetch "$REMOTE_URL" "$BRANCH" --quiet
+    local behind
+    behind=$(git -C "$IAM_DIR" rev-list --count HEAD.."$REMOTE_URL/$BRANCH" 2>/dev/null || echo 0)
 
-    # Install packages
-    if command -v yay &>/dev/null; then
-        local pkg_manager="yay"
-    else
-        local pkg_manager="sudo pacman"
+    if [[ "$behind" -eq 0 ]]; then
+        ok "Already up to date — no changes on remote"
+        echo
+        dim "Checking configs..."
+
+        # Still restow in case local files got out of sync
+        cd "$IAM_DIR"
+        for pkg in "${STOW_PACKAGES[@]}"; do
+            [[ -d "$pkg" ]] || continue
+            stow --restow --target="$HOME" "$pkg" 2>/dev/null || true
+        done
+        ok "Configs verified"
+        return
     fi
 
-    local new_pkgs=0
-    for group in base rice shell security; do
-        local file="$PACKAGES_DIR/${group}.txt"
+    # Pull changes
+    info "$behind new commit(s) found"
+    echo
+
+    # Snapshot which packages we had before pull (to diff later)
+    local pre_pull_pkgs
+    pre_pull_pkgs=$(mktemp)
+    pacman -Qqe > "$pre_pull_pkgs" 2>/dev/null || true
+
+    git -C "$IAM_DIR" pull --rebase "$REMOTE_URL" "$BRANCH"
+    ok "Pulled latest changes"
+
+    # Figure out which packages are new (compare repo lists vs installed)
+    local missing_pkgs=""
+    local pkg_manager="yay"
+    command -v yay &>/dev/null || pkg_manager="sudo pacman"
+
+    for file in "$PACKAGES_DIR"/*.txt; do
         [[ -f "$file" ]] || continue
-        local pkgs
-        pkgs=$(grep -v '^#' "$file" | grep -v '^$' | tr '\n' ' ')
-        [[ -z "$pkgs" ]] && continue
-        gum spin --spinner dot --title "Installing ${group} packages..." -- \
-            bash -c "$pkg_manager -S --needed --noconfirm $pkgs 2>/dev/null" || true
-        new_pkgs=1
+        while IFS= read -r pkg; do
+            [[ -z "$pkg" || "$pkg" == \#* ]] && continue
+            if ! pacman -Qi "$pkg" &>/dev/null; then
+                missing_pkgs+="$pkg "
+            fi
+        done < "$file"
     done
-    [[ $new_pkgs -eq 1 ]] && ok "Packages up to date"
+
+    if [[ -n "$missing_pkgs" ]]; then
+        info "Installing new packages..."
+        echo
+        $pkg_manager -S --needed --noconfirm $missing_pkgs 2>&1 | \
+            while IFS= read -r line; do
+                dim "  $line"
+            done
+        echo
+        ok "Packages installed"
+    else
+        ok "All packages already installed"
+    fi
+
+    rm -f "$pre_pull_pkgs"
 
     # Restow all configs
     cd "$IAM_DIR"
     for pkg in "${STOW_PACKAGES[@]}"; do
         [[ -d "$pkg" ]] || continue
-        gum spin --spinner dot --title "Applying ${pkg} configs..." -- \
-            stow --restow --target="$HOME" "$pkg"
+        stow --restow --target="$HOME" "$pkg" 2>/dev/null || true
     done
     ok "Configs applied"
 
