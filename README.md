@@ -150,48 +150,57 @@ All keybinds use `Super` (Mod) as the modifier. Vim-style (`h/j/k/l`) navigation
 
 ## Structure
 
+Uses [GNU Stow](https://www.gnu.org/software/stow/) — each top-level directory is an independent stow package that symlinks into `$HOME`.
+
 ```
 project-i-a-m/
-├── dotfiles/
-│   ├── .config/
-│   │   ├── niri/              # Compositor config (keybinds, layout, animations)
-│   │   ├── ghostty/           # Terminal (Noir colors, GLSL shaders, font)
-│   │   ├── fish/              # Shell (aliases, plugins, greeting)
-│   │   ├── nvim/              # Neovim (LazyVim)
-│   │   ├── starship.toml      # Prompt theme
-│   │   ├── cava/              # Audio visualizer (shaders + themes)
-│   │   ├── fastfetch/         # System info fetch
-│   │   ├── fuzzel/            # Launcher
-│   │   ├── mako/              # Notifications
-│   │   ├── noctalia/          # Shell panel (Noir colorscheme)
-│   │   ├── wlogout/           # Power menu
-│   │   ├── waypaper/          # Wallpaper picker
-│   │   ├── yazi/              # File manager theme
-│   │   ├── zed/               # Editor settings
-│   │   ├── gtk-3.0/           # GTK3 theme
-│   │   ├── gtk-4.0/           # GTK4 theme
-│   │   └── Thunar/            # File manager config
-│   └── .local/bin/            # Scripts (wallswitch, wallpaper-rotate)
-├── system/
-│   ├── etc/
-│   │   ├── sddm.conf.d/      # Login manager
-│   │   ├── xdg/quickshell/    # Noctalia system colorscheme
-│   │   ├── default/grub       # Bootloader
-│   │   ├── mkinitcpio.conf    # Initramfs
-│   │   ├── vconsole.conf      # Console font
-│   │   └── locale.conf        # Locale
-│   └── usr/share/sddm/themes/ # SDDM Sugar Dark theme
-└── packages/
-    ├── pacman-explicit.txt    # All explicitly installed packages
-    ├── native-packages.txt    # Full native package list
-    └── aur-packages.txt       # AUR packages
+├── rice/                          # stow rice → visual/desktop configs
+│   └── .config/
+│       ├── niri/                  # Compositor (keybinds, layout, shaders)
+│       ├── ghostty/               # Terminal (Noir colors, GLSL shaders)
+│       ├── noctalia/              # Shell panel (Noir colorscheme)
+│       ├── cava/                  # Audio visualizer (shaders + themes)
+│       ├── fastfetch/             # System info fetch
+│       ├── fuzzel/                # Launcher
+│       ├── mako/                  # Notifications
+│       ├── wlogout/               # Power menu
+│       ├── waypaper/              # Wallpaper picker
+│       ├── yazi/                  # File manager theme
+│       ├── btop/                  # System monitor theme
+│       ├── starship.toml          # Prompt theme
+│       ├── gtk-3.0/               # GTK3 theme
+│       ├── gtk-4.0/               # GTK4 theme
+│       ├── Thunar/                # File manager config
+│       ├── xfce4/                 # Thunar XML config
+│       ├── mimeapps.list          # Default applications
+│       └── user-dirs.dirs         # XDG user directories
+├── shell/                         # stow shell → shell/editor configs
+│   └── .config/
+│       ├── fish/                  # Shell (aliases, plugins, greeting)
+│       ├── atuin/                 # Shell history sync
+│       ├── nvim/                  # Neovim (LazyVim)
+│       └── zed/                   # Editor settings
+├── security/                      # stow security → security tool configs
+│   └── .config/                   # (grows as tools get configured)
+├── scripts/                       # stow scripts → user scripts
+│   └── .local/bin/
+│       ├── wallswitch             # Wallpaper switcher
+│       ├── wallpaper-rotate       # Wallpaper rotation daemon
+│       └── wall-fetch             # Wallpaper fetch utility
+├── system/                        # NOT stowed — deployed with sudo cp
+│   ├── etc/                       # System configs (SDDM, GRUB, locale)
+│   └── usr/                       # SDDM theme overrides
+├── packages/
+│   ├── rice.txt                   # Visual/desktop packages
+│   ├── shell.txt                  # Shell/CLI/dev packages
+│   ├── security.txt               # Pentesting & CTF toolkit
+│   └── base.txt                   # System base + drivers
+└── install.sh                     # Installer (packages + stow)
 ```
 
 ---
 
 ## Installation
-
-> This is currently a **dotfiles repo** — manual setup only. An automated installer is planned.
 
 ### Prerequisites
 
@@ -199,38 +208,37 @@ project-i-a-m/
 - An AUR helper (`yay` recommended)
 - Wayland-compatible GPU (AMD recommended, NVIDIA works with caveats)
 
-### Steps
+### Quick Start
 
-1. **Install packages**
+```bash
+git clone https://github.com/youruser/project-i-a-m.git ~/project-i-a-m
+cd ~/project-i-a-m
+./install.sh install                  # Install all packages + stow all configs
+./install.sh system                   # Deploy system configs (requires sudo)
+sudo systemctl enable sddm NetworkManager
+```
 
-   ```bash
-   # Install from the curated package list
-   yay -S --needed - < packages/pacman-explicit.txt
-   ```
+### Selective Install
 
-2. **Deploy dotfiles**
+```bash
+# Install only what you want
+./install.sh packages rice shell      # Install rice + shell packages
+./install.sh stow rice shell scripts  # Stow only those configs
+./install.sh packages security        # Add security toolkit later
 
-   ```bash
-   # Copy configs to your home directory
-   cp -r dotfiles/.config/* ~/.config/
-   cp -r dotfiles/.local/* ~/.local/
-   chmod +x ~/.local/bin/*
-   ```
+# Remove a config layer without affecting others
+./install.sh unstow security
+```
 
-3. **Deploy system configs** (requires root)
+### Manual Stow
 
-   ```bash
-   sudo cp -r system/etc/* /etc/
-   sudo cp -r system/usr/* /usr/
-   ```
-
-4. **Enable services**
-
-   ```bash
-   sudo systemctl enable sddm NetworkManager
-   ```
-
-5. **Reboot and log into Niri**
+```bash
+cd ~/project-i-a-m
+stow rice                            # Symlinks rice/.config/* → ~/.config/*
+stow shell                           # Symlinks shell/.config/* → ~/.config/*
+stow scripts                         # Symlinks scripts/.local/bin/* → ~/.local/bin/*
+stow -D rice                         # Remove rice symlinks
+```
 
 ### Wallpapers
 
@@ -238,12 +246,28 @@ Drop your wallpapers in `~/Pictures/Wallpapers/`. Press `Mod + W` to cycle with 
 
 ---
 
+## Security Toolkit
+
+HTB/THM-ready out of the box. Install with `./install.sh packages security`.
+
+| Category | Tools |
+|---|---|
+| **Recon** | nmap, masscan, whois, dnsutils, whatweb, enum4linux |
+| **Web** | gobuster, feroxbuster, dirb, nikto, sqlmap, burpsuite |
+| **Passwords** | hashcat, john, hydra |
+| **Network** | wireshark, tcpdump, netcat, socat, traceroute, net-tools |
+| **Exploitation** | metasploit, exploitdb |
+| **Wordlists** | seclists, wordlistctl |
+| **VPN/Proxy** | openvpn, wireguard-tools, proxychains-ng, tor |
+
+---
+
 ## Roadmap
 
+- [x] GNU Stow-based dotfile management
+- [x] Cybersecurity tool bundles
 - [ ] Automated installer (omarchy-style TUI)
-- [ ] Cybersecurity tool bundles (recon, web, forensics, wireless)
 - [ ] Custom ISO for live USB boot
-- [ ] Dotfile symlink manager
 - [ ] Screenshot gallery
 
 ---
