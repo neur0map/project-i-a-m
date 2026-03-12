@@ -7,6 +7,20 @@
         }
     ],
     "states": {
+        "fancy-audiovisualizer": { "enabled": true },
+        "privacy-indicator": { "enabled": true },
+        "screen-recorder": { "enabled": true },
+        "mini-docker": { "enabled": true },
+        "ip-monitor": { "enabled": true },
+        "dns-switcher": { "enabled": true },
+        "file-search": { "enabled": true },
+        "timer": { "enabled": true },
+        "todo": { "enabled": true },
+        "clipper": { "enabled": true },
+        "catwalk": { "enabled": true },
+        "video-wallpaper": { "enabled": true },
+        "screenshot": { "enabled": true },
+        "niri-overview-launcher": { "enabled": true }
     },
     "version": 2
 }

@@ -5,7 +5,7 @@
 </h1>
 
 <p align="center">
-  <i>"I think, therefore I am."</i><br>
+  <i>I have a mouth. And I will scream.</i><br>
   <sub>An opinionated Arch Linux rice for cybersecurity students who refuse to be ugly.</sub>
 </p>
 
