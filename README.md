@@ -66,22 +66,6 @@ fastfetch  cava  cmatrix  cbonsai  pipes.sh  tty-clock  lolcat
 
 ---
 
-## Noir Theme
-
-A dark, desaturated palette with blood-red accents. Applied everywhere — terminal, shell, editor, GTK, lock screen.
-
-```
- Background     #0e0e0e  ████████
- Surface        #1c1c1c  ████████
- Border         #2a2a2a  ████████
- Text           #d4d0ce  ████████
- Muted          #8a8a8a  ████████
- Accent         #a63d4f  ████████
- Accent Light   #c45c6e  ████████
- Accent Deep    #7a2e3c  ████████
- Error          #c45c5c  ████████
-```
-
 Terminal colors follow the same muted-noir aesthetic with desaturated greens, yellows, blues, and magentas.
 
 ---

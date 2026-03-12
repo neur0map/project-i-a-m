@@ -38,6 +38,5 @@ mouse-hide-while-typing = true
 copy-on-select = clipboard
 shell-integration = fish
 theme = noctalia
-
 custom-shader = /home/neur0map/.config/ghostty/shaders/cursor_warp.glsl
 custom-shader-animation = always
