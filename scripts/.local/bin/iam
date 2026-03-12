@@ -61,36 +61,19 @@ do_sync() {
 
     if [[ "$behind" -eq 0 ]]; then
         ok "Already up to date — no changes on remote"
-        echo
-        dim "Checking configs..."
-
-        # Still restow in case local files got out of sync
-        cd "$IAM_DIR"
-        for pkg in "${STOW_PACKAGES[@]}"; do
-            [[ -d "$pkg" ]] || continue
-            stow --restow --target="$HOME" "$pkg" 2>/dev/null || true
-        done
-        ok "Configs verified"
-        return
+    else
+        info "$behind new commit(s) found"
+        git -C "$IAM_DIR" pull --rebase "$REMOTE_URL" "$BRANCH"
+        ok "Pulled latest changes"
     fi
-
-    # Pull changes
-    info "$behind new commit(s) found"
     echo
 
-    # Snapshot which packages we had before pull (to diff later)
-    local pre_pull_pkgs
-    pre_pull_pkgs=$(mktemp)
-    pacman -Qqe > "$pre_pull_pkgs" 2>/dev/null || true
-
-    git -C "$IAM_DIR" pull --rebase "$REMOTE_URL" "$BRANCH"
-    ok "Pulled latest changes"
-
-    # Figure out which packages are new (compare repo lists vs installed)
+    # Always check for missing packages
     local missing_pkgs=""
     local pkg_manager="yay"
     command -v yay &>/dev/null || pkg_manager="sudo pacman"
 
+    dim "Checking packages..."
     for file in "$PACKAGES_DIR"/*.txt; do
         [[ -f "$file" ]] || continue
         while IFS= read -r pkg; do
@@ -102,7 +85,9 @@ do_sync() {
     done
 
     if [[ -n "$missing_pkgs" ]]; then
-        info "Installing new packages..."
+        local count
+        count=$(echo "$missing_pkgs" | wc -w | tr -d ' ')
+        info "Installing $count missing package(s)..."
         echo
         $pkg_manager -S --needed --noconfirm $missing_pkgs 2>&1 | \
             while IFS= read -r line; do
@@ -111,10 +96,8 @@ do_sync() {
         echo
         ok "Packages installed"
     else
-        ok "All packages already installed"
+        ok "All packages installed"
     fi
-
-    rm -f "$pre_pull_pkgs"
 
     # Restow all configs
     cd "$IAM_DIR"
