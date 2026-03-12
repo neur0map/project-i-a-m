@@ -39,15 +39,30 @@ sudo systemctl enable sddm NetworkManager
 ./install.sh unstow security          # Remove a config layer
 ```
 
-### Manual Stow
+## The `iam` Command
+
+After install, the `iam` command is available system-wide. It's a TUI for managing your system — pulling updates, installing packages, and applying configs. Requires [gum](https://github.com/charmbracelet/gum) and [GitHub CLI](https://cli.github.com/) (`gh auth login`).
 
 ```bash
-cd ~/project-i-a-m
-stow rice       # rice/.config/* → ~/.config/*
-stow shell      # shell/.config/* → ~/.config/*
-stow scripts    # scripts/.local/bin/* → ~/.local/bin/*
-stow -D rice    # remove rice symlinks
+iam              # Interactive menu
+iam update       # Pull latest changes, install packages & apply configs
+iam status       # Show sync state, local changes & version info
+iam save         # Snapshot your system and push changes to your repo
+iam track        # Start tracking a new config file or directory
 ```
+
+### How it works
+
+`iam` detects whether you have push access to the remote you cloned from (via `gh api`):
+
+| | With push access (maintainer / fork owner) | Without push access (cloned upstream) |
+|---|---|---|
+| **Update** | Pull + rebase (preserves local changes) | Pull + hard reset (clean sync to latest) |
+| **Save** | Snapshot packages, commit & push | Blocked — fork the repo first |
+| **Track** | Adopt a config file into the repo | Blocked — fork the repo first |
+| **Status** | Full ahead/behind info | Full version info |
+
+If you want to customize and save your own changes, [fork the repo](https://github.com/neur0map/project-i-a-m/fork) on GitHub, clone your fork, and `iam` will detect your push access automatically.
 
 ---
 
@@ -79,7 +94,7 @@ project-i-a-m/
 ├── rice/          .config/ → niri, ghostty, noctalia, cava, mako, fuzzel, swww ...
 ├── shell/         .config/ → fish, atuin, nvim, zed
 ├── security/      .config/ → security tool configs
-├── scripts/       .local/bin/ → wallswitch, wallpaper-rotate, wall-fetch
+├── scripts/       .local/bin/ → iam, wallswitch, wallpaper-rotate, wall-fetch
 ├── system/        /etc, /usr → SDDM, GRUB, locale (deployed with sudo cp)
 ├── packages/      rice.txt, shell.txt, security.txt, base.txt
 └── install.sh     installer (packages + stow)
@@ -185,6 +200,7 @@ HTB/THM-ready out of the box. Install with `./install.sh packages security`.
 
 - [x] GNU Stow-based dotfile management
 - [x] Cybersecurity tool bundles
+- [x] `iam` TUI — update, save, track configs with role-based access
 - [ ] Automated installer (omarchy-style TUI)
 - [ ] Custom ISO for live USB boot
 - [ ] [pkgtrack](https://github.com/neur0map/pkgtrack) — cross-manager package tracker TUI
