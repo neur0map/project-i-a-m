@@ -18,21 +18,36 @@
 
 ---
 
-## The Problem
-
-You're studying cybersecurity. Your options are:
-
-- **Kali Linux** — bloated, ugly, ships 600 tools you'll never touch
-- **Parrot OS** — slightly better, still looks like 2012
-- **Arch + ricing** — beautiful, but now you're spending hours installing security tools on top
-
-Every "hacker distro" prioritizes tooling over experience. Every Arch rice prioritizes aesthetics over function. You shouldn't have to choose.
-
-## The Solution
-
-**I.A.M** is a dotfiles-first Arch Linux setup that looks stunning and works for security.
-
 Rice-first. Security-ready. No compromises.
+
+## Quick Install
+
+```bash
+git clone https://github.com/neur0map/project-i-a-m.git ~/project-i-a-m
+cd ~/project-i-a-m
+./install.sh install        # packages + stow all configs
+./install.sh system         # system configs (requires sudo)
+sudo systemctl enable sddm NetworkManager
+```
+
+### Selective Install
+
+```bash
+./install.sh packages rice shell      # Install specific package groups
+./install.sh stow rice shell scripts  # Stow specific configs
+./install.sh packages security        # Add security toolkit later
+./install.sh unstow security          # Remove a config layer
+```
+
+### Manual Stow
+
+```bash
+cd ~/project-i-a-m
+stow rice       # rice/.config/* → ~/.config/*
+stow shell      # shell/.config/* → ~/.config/*
+stow scripts    # scripts/.local/bin/* → ~/.local/bin/*
+stow -D rice    # remove rice symlinks
+```
 
 ---
 
@@ -43,36 +58,39 @@ Rice-first. Security-ready. No compromises.
 | **Compositor** | [Niri](https://github.com/YaLTeR/niri) (scrollable tiling Wayland) |
 | **Desktop Shell** | [Noctalia](https://noctalia.dev) (bar, launcher, control center) |
 | **Terminal** | [Ghostty](https://ghostty.org) + custom GLSL shaders |
-| **CLI Shell** | [Fish](https://fishshell.com) + [Starship](https://starship.rs) prompt |
+| **Shell** | [Fish](https://fishshell.com) + [Starship](https://starship.rs) |
 | **Editor** | [Neovim](https://neovim.io) (LazyVim) + [Zed](https://zed.dev) |
 | **File Manager** | [Yazi](https://yazi-rs.github.io) (TUI) + [Thunar](https://docs.xfce.org/xfce/thunar/start) (GUI) |
 | **Browser** | [Brave](https://brave.com) |
 | **Notifications** | [Mako](https://github.com/emersion/mako) |
-| **Launcher** | [Fuzzel](https://codeberg.org/dnkl/fuzzel) + Noctalia launcher |
-| **Lock Screen** | [swaylock-effects](https://github.com/mortie/swaylock-effects) (blur + vignette) |
+| **Lock Screen** | [swaylock-effects](https://github.com/mortie/swaylock-effects) |
 | **Wallpaper** | [swww](https://github.com/LGFae/swww) (animated transitions) |
-| **Login** | [SDDM](https://github.com/sddm/sddm) + Sugar Dark theme |
+| **Login** | [SDDM](https://github.com/sddm/sddm) + Sugar Dark |
 | **Fonts** | JetBrains Mono Nerd, Fira Code, Noto (CJK + Emoji) |
-| **Icons** | Papirus |
-| **Cursor** | Bibata Modern Classic |
 
-### CLI Arsenal
+---
+
+## Structure
+
+Uses [GNU Stow](https://www.gnu.org/software/stow/) — each directory is a stow package that symlinks into `$HOME`.
 
 ```
-bat  eza  fd  ripgrep  fzf  zoxide  atuin  btop  bottom
-dust  duf  procs  lazygit  git-delta  jq  just  tokei  yazi
-fastfetch  cava  cmatrix  cbonsai  pipes.sh  tty-clock  lolcat
+project-i-a-m/
+├── rice/          .config/ → niri, ghostty, noctalia, cava, mako, fuzzel, swww ...
+├── shell/         .config/ → fish, atuin, nvim, zed
+├── security/      .config/ → security tool configs
+├── scripts/       .local/bin/ → wallswitch, wallpaper-rotate, wall-fetch
+├── system/        /etc, /usr → SDDM, GRUB, locale (deployed with sudo cp)
+├── packages/      rice.txt, shell.txt, security.txt, base.txt
+└── install.sh     installer (packages + stow)
 ```
 
 ---
 
-Terminal colors follow the same muted-noir aesthetic with desaturated greens, yellows, blues, and magentas.
+<details>
+<summary><strong>Keybinds</strong></summary>
 
----
-
-## Keybinds
-
-All keybinds use `Super` (Mod) as the modifier. Vim-style (`h/j/k/l`) navigation works alongside arrow keys.
+All keybinds use `Super` (Mod). Vim-style (`h/j/k/l`) navigation works alongside arrow keys.
 
 ### Essentials
 
@@ -122,7 +140,7 @@ All keybinds use `Super` (Mod) as the modifier. Vim-style (`h/j/k/l`) navigation
 |---|---|
 | `Mod + N` | Control center |
 | `Mod + V` | Clipboard history |
-| `Mod + Shift + W` | Random wallpaper (animated transition) |
+| `Mod + Shift + W` | Random wallpaper |
 | `Mod + P` | Wallpaper picker |
 | `Mod + X` | Lock screen |
 | `Mod + Shift + E` | Power menu |
@@ -130,103 +148,20 @@ All keybinds use `Super` (Mod) as the modifier. Vim-style (`h/j/k/l`) navigation
 | `Mod + Shift + S` | Screenshot (screen) |
 | `Mod + /` | Show all keybinds |
 
----
+</details>
 
-## Structure
+<details>
+<summary><strong>Noir Theme</strong></summary>
 
-Uses [GNU Stow](https://www.gnu.org/software/stow/) — each top-level directory is an independent stow package that symlinks into `$HOME`.
+Terminal colors follow a muted-noir aesthetic with desaturated greens, yellows, blues, and magentas.
 
-```
-project-i-a-m/
-├── rice/                          # stow rice → visual/desktop configs
-│   └── .config/
-│       ├── niri/                  # Compositor (keybinds, layout, shaders)
-│       ├── ghostty/               # Terminal (Noir colors, GLSL shaders)
-│       ├── noctalia/              # Shell panel (Noir colorscheme)
-│       ├── cava/                  # Audio visualizer (shaders + themes)
-│       ├── fastfetch/             # System info fetch
-│       ├── fuzzel/                # Launcher
-│       ├── mako/                  # Notifications
-│       ├── wlogout/               # Power menu
-│       ├── waypaper/              # Wallpaper picker
-│       ├── yazi/                  # File manager theme
-│       ├── btop/                  # System monitor theme
-│       ├── starship.toml          # Prompt theme
-│       ├── gtk-3.0/               # GTK3 theme
-│       ├── gtk-4.0/               # GTK4 theme
-│       ├── Thunar/                # File manager config
-│       ├── xfce4/                 # Thunar XML config
-│       ├── mimeapps.list          # Default applications
-│       └── user-dirs.dirs         # XDG user directories
-├── shell/                         # stow shell → shell/editor configs
-│   └── .config/
-│       ├── fish/                  # Shell (aliases, plugins, greeting)
-│       ├── atuin/                 # Shell history sync
-│       ├── nvim/                  # Neovim (LazyVim)
-│       └── zed/                   # Editor settings
-├── security/                      # stow security → security tool configs
-│   └── .config/                   # (grows as tools get configured)
-├── scripts/                       # stow scripts → user scripts
-│   └── .local/bin/
-│       ├── wallswitch             # Wallpaper switcher
-│       ├── wallpaper-rotate       # Wallpaper rotation daemon
-│       └── wall-fetch             # Wallpaper fetch utility
-├── system/                        # NOT stowed — deployed with sudo cp
-│   ├── etc/                       # System configs (SDDM, GRUB, locale)
-│   └── usr/                       # SDDM theme overrides
-├── packages/
-│   ├── rice.txt                   # Visual/desktop packages
-│   ├── shell.txt                  # Shell/CLI/dev packages
-│   ├── security.txt               # Pentesting & CTF toolkit
-│   └── base.txt                   # System base + drivers
-└── install.sh                     # Installer (packages + stow)
-```
+| Token | Hex |
+|---|---|
+| Background | `#0e0e0e` |
+| Accent | `#a63d4f` |
+| Text | `#d4d0ce` |
 
----
-
-## Installation
-
-### Prerequisites
-
-- Arch Linux installed (base + base-devel)
-- An AUR helper (`yay` recommended)
-- Wayland-compatible GPU (AMD recommended, NVIDIA works with caveats)
-
-### Quick Start
-
-```bash
-git clone https://github.com/youruser/project-i-a-m.git ~/project-i-a-m
-cd ~/project-i-a-m
-./install.sh install                  # Install all packages + stow all configs
-./install.sh system                   # Deploy system configs (requires sudo)
-sudo systemctl enable sddm NetworkManager
-```
-
-### Selective Install
-
-```bash
-# Install only what you want
-./install.sh packages rice shell      # Install rice + shell packages
-./install.sh stow rice shell scripts  # Stow only those configs
-./install.sh packages security        # Add security toolkit later
-
-# Remove a config layer without affecting others
-./install.sh unstow security
-```
-
-### Manual Stow
-
-```bash
-cd ~/project-i-a-m
-stow rice                            # Symlinks rice/.config/* → ~/.config/*
-stow shell                           # Symlinks shell/.config/* → ~/.config/*
-stow scripts                         # Symlinks scripts/.local/bin/* → ~/.local/bin/*
-stow -D rice                         # Remove rice symlinks
-```
-
-### Wallpapers
-
-Drop your wallpapers in `~/Pictures/Wallpapers/`. Press `Mod + W` to cycle with animated transitions.
+</details>
 
 ---
 
@@ -252,14 +187,15 @@ HTB/THM-ready out of the box. Install with `./install.sh packages security`.
 - [x] Cybersecurity tool bundles
 - [ ] Automated installer (omarchy-style TUI)
 - [ ] Custom ISO for live USB boot
+- [ ] [pkgtrack](https://github.com/neur0map/pkgtrack) — cross-manager package tracker TUI
 - [ ] Screenshot gallery
 
 ---
 
 ## Credits
 
-- [Niri](https://github.com/YaLTeR/niri) — the scrollable tiling compositor that makes this possible
-- [Noctalia Shell](https://github.com/noctalia-dev/noctalia-shell) — the desktop shell powering the bar, launcher, and control center
+- [Niri](https://github.com/YaLTeR/niri) — scrollable tiling compositor
+- [Noctalia Shell](https://github.com/noctalia-dev/noctalia-shell) — bar, launcher, control center
 - [LazyVim](https://www.lazyvim.org/) — Neovim, configured
 - Theme inspired by noir cinema and Harlan Ellison's vision of machines that think
 

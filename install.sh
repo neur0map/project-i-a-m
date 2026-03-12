@@ -105,6 +105,24 @@ unstow_packages() {
     done
 }
 
+ensure_iam_command() {
+    local bin_dir="$HOME/.local/bin"
+    local iam_link="$bin_dir/iam"
+
+    # Stow should have created this, but ensure it exists as fallback
+    if [[ ! -x "$iam_link" ]]; then
+        mkdir -p "$bin_dir"
+        ln -sf "$REPO_DIR/scripts/.local/bin/iam" "$iam_link"
+        info "Linked iam → $iam_link"
+    fi
+
+    # Ensure ~/.local/bin is in PATH for current shell
+    if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
+        export PATH="$bin_dir:$PATH"
+        info "Added $bin_dir to PATH (add to your shell rc for persistence)"
+    fi
+}
+
 deploy_system() {
     info "Deploying system configs..."
     if [[ ! -d "$REPO_DIR/system" ]]; then
@@ -125,7 +143,8 @@ main() {
             check_deps
             install_packages "$@"
             stow_packages "$@"
-            info "Done! Configs are symlinked."
+            ensure_iam_command
+            info "Done! Configs are symlinked. Run 'iam' to manage your system."
             ;;
         stow)
             check_deps

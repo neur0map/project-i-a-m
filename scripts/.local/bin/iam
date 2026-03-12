@@ -1,0 +1,268 @@
+#!/usr/bin/env bash
+#
+# iam — Project I.A.M dotfile manager
+# Interactive TUI for syncing configs across machines
+#
+set -euo pipefail
+
+# ── Config ────────────────────────────────────────────────────────
+# Auto-detect repo by following this script's symlink back
+# scripts/.local/bin/iam → ../../.. → repo root
+if [[ -z "${IAM_DIR:-}" ]]; then
+    _self="$(readlink -f "$0")"
+    IAM_DIR="$(cd "$(dirname "$_self")/../../.." && pwd)"
+    unset _self
+fi
+STOW_PACKAGES=(rice shell security scripts)
+PACKAGES_DIR="$IAM_DIR/packages"
+REMOTE_URL="origin"
+BRANCH="main"
+
+RED="#a63d4f"
+DIM="#666666"
+TEXT="#d4d0ce"
+BG="#0e0e0e"
+
+# ── Helpers ───────────────────────────────────────────────────────
+die()  { gum style --foreground "$RED" "  $*"; exit 1; }
+info() { gum style --foreground "$TEXT" "  $*"; }
+dim()  { gum style --foreground "$DIM" "  $*"; }
+ok()   { gum style --foreground 2 "  $*"; }
+
+need() {
+    for cmd in "$@"; do
+        command -v "$cmd" &>/dev/null || die "$cmd not found. Install it first."
+    done
+}
+
+header() {
+    clear
+    gum style \
+        --border double \
+        --border-foreground "$RED" \
+        --padding "1 3" \
+        --align center \
+        --width 40 \
+        "P R O J E C T" "" "I . A . M"
+    echo
+}
+
+# ── Actions ───────────────────────────────────────────────────────
+
+do_sync() {
+    header
+    need git stow
+
+    gum spin --spinner dot --title "Pulling latest..." -- \
+        git -C "$IAM_DIR" pull --rebase "$REMOTE_URL" "$BRANCH"
+    ok "Pulled latest changes"
+
+    # Install packages
+    if command -v yay &>/dev/null; then
+        local pkg_manager="yay"
+    else
+        local pkg_manager="sudo pacman"
+    fi
+
+    local new_pkgs=0
+    for group in base rice shell security; do
+        local file="$PACKAGES_DIR/${group}.txt"
+        [[ -f "$file" ]] || continue
+        local pkgs
+        pkgs=$(grep -v '^#' "$file" | grep -v '^$' | tr '\n' ' ')
+        [[ -z "$pkgs" ]] && continue
+        gum spin --spinner dot --title "Installing ${group} packages..." -- \
+            bash -c "$pkg_manager -S --needed --noconfirm $pkgs 2>/dev/null" || true
+        new_pkgs=1
+    done
+    [[ $new_pkgs -eq 1 ]] && ok "Packages up to date"
+
+    # Restow all configs
+    cd "$IAM_DIR"
+    for pkg in "${STOW_PACKAGES[@]}"; do
+        [[ -d "$pkg" ]] || continue
+        gum spin --spinner dot --title "Applying ${pkg} configs..." -- \
+            stow --restow --target="$HOME" "$pkg"
+    done
+    ok "Configs applied"
+
+    # System configs
+    if [[ -d "$IAM_DIR/system/etc" ]]; then
+        gum confirm "Apply system configs (/etc)?" && {
+            sudo cp -r "$IAM_DIR/system/etc/"* /etc/ 2>/dev/null || true
+            ok "System configs deployed"
+        }
+    fi
+
+    echo
+    ok "Sync complete. System is up to date."
+}
+
+do_save() {
+    header
+    need git
+
+    # Snapshot packages
+    info "Snapshotting installed packages..."
+    mkdir -p "$PACKAGES_DIR"
+    pacman -Qqen > "$PACKAGES_DIR/native-packages.txt"
+    pacman -Qqem > "$PACKAGES_DIR/aur-packages.txt"
+
+    cd "$IAM_DIR"
+
+    # Check for changes
+    local changes
+    changes=$(git status --porcelain)
+    if [[ -z "$changes" ]]; then
+        ok "Nothing to save. Already up to date."
+        return
+    fi
+
+    # Show what changed
+    echo
+    dim "Changes detected:"
+    echo
+    git -C "$IAM_DIR" --no-pager diff --stat
+    git -C "$IAM_DIR" --no-pager diff --stat --cached 2>/dev/null || true
+    git -C "$IAM_DIR" status --short | while read -r line; do
+        dim "  $line"
+    done
+    echo
+
+    gum confirm "Save and push these changes?" || return
+
+    # Stage, commit, push
+    git -C "$IAM_DIR" add -A
+
+    local summary
+    summary=$(git -C "$IAM_DIR" diff --cached --stat | tail -1 | sed 's/^ *//')
+    local msg
+    msg="iam: ${summary:-sync}"
+
+    gum spin --spinner dot --title "Saving..." -- \
+        git -C "$IAM_DIR" commit -m "$msg"
+    gum spin --spinner dot --title "Pushing..." -- \
+        git -C "$IAM_DIR" push "$REMOTE_URL" "$BRANCH"
+
+    echo
+    ok "Saved and pushed."
+}
+
+do_add() {
+    header
+    need stow
+
+    local target
+    target=$(gum input --placeholder "Path to adopt (e.g. ~/.config/ghostty)")
+    [[ -z "$target" ]] && die "No path given."
+
+    # Expand ~ and resolve
+    target="${target/#\~/$HOME}"
+    target="$(realpath "$target" 2>/dev/null || echo "$target")"
+
+    [[ -e "$target" ]] || die "Path does not exist: $target"
+
+    # Figure out the relative path from $HOME
+    local rel_path="${target#$HOME/}"
+    [[ "$rel_path" == "$target" ]] && die "Path must be under \$HOME"
+
+    # Pick which stow package to add it to
+    local stow_pkg
+    stow_pkg=$(gum choose --header "Add to which group?" "${STOW_PACKAGES[@]}")
+    [[ -z "$stow_pkg" ]] && die "No group selected."
+
+    local dest="$IAM_DIR/$stow_pkg/$rel_path"
+    local dest_dir
+    dest_dir=$(dirname "$dest")
+
+    # Move and restow
+    mkdir -p "$dest_dir"
+
+    if [[ -L "$target" ]]; then
+        die "Already a symlink (maybe already tracked?): $target"
+    fi
+
+    mv "$target" "$dest"
+    ok "Moved to $stow_pkg/$rel_path"
+
+    cd "$IAM_DIR"
+    stow --restow --target="$HOME" "$stow_pkg"
+    ok "Symlinked back to $target"
+
+    echo
+    dim "Run 'iam' → Save to commit this change."
+}
+
+do_status() {
+    header
+    need git
+
+    cd "$IAM_DIR"
+
+    local changes
+    changes=$(git status --porcelain)
+
+    if [[ -z "$changes" ]]; then
+        ok "Clean. No changes since last save."
+    else
+        dim "Changed files:"
+        echo
+        git status --short | while read -r line; do
+            info "  $line"
+        done
+    fi
+
+    echo
+
+    # Show last sync
+    local last
+    last=$(git log -1 --format="%ar — %s" 2>/dev/null || echo "never")
+    dim "Last save: $last"
+
+    # Check if remote is ahead/behind
+    git fetch "$REMOTE_URL" "$BRANCH" --quiet 2>/dev/null || true
+    local behind ahead
+    behind=$(git rev-list --count HEAD.."$REMOTE_URL/$BRANCH" 2>/dev/null || echo 0)
+    ahead=$(git rev-list --count "$REMOTE_URL/$BRANCH"..HEAD 2>/dev/null || echo 0)
+
+    [[ "$behind" -gt 0 ]] && info "Remote is $behind commits ahead (run Sync)"
+    [[ "$ahead" -gt 0 ]] && info "Local is $ahead commits ahead (run Save)"
+    [[ "$behind" -eq 0 && "$ahead" -eq 0 ]] && ok "In sync with remote"
+}
+
+# ── Main Menu ─────────────────────────────────────────────────────
+
+main() {
+    need gum
+
+    # Allow direct subcommand for scripting: iam sync, iam save, etc.
+    case "${1:-}" in
+        sync)   do_sync; return ;;
+        save)   do_save; return ;;
+        add)    do_add;  return ;;
+        status) do_status; return ;;
+    esac
+
+    header
+
+    local choice
+    choice=$(gum choose \
+        --header "What do you want to do?" \
+        --cursor.foreground "$RED" \
+        --header.foreground "$DIM" \
+        "Sync       Pull latest & apply everything" \
+        "Save       Snapshot & push your changes" \
+        "Add        Adopt a new config file" \
+        "Status     See what's changed" \
+        "Quit")
+
+    case "$choice" in
+        Sync*)   do_sync ;;
+        Save*)   do_save ;;
+        Add*)    do_add ;;
+        Status*) do_status ;;
+        *)       exit 0 ;;
+    esac
+}
+
+main "$@"
