@@ -1,0 +1,48 @@
+format = """
+$directory\
+$git_branch\
+$git_status\
+$rust\
+$golang\
+$nodejs\
+$python\
+$character"""
+
+[character]
+success_symbol = "[▸](bold #a63d4f)"
+error_symbol = "[▸](bold #c45c5c)"
+vimcmd_symbol = "[◂](bold #a63d4f)"
+
+[directory]
+style = "bold #d4d0ce"
+truncation_length = 3
+truncate_to_repo = true
+format = "[$path]($style)[$read_only]($read_only_style) "
+
+[git_branch]
+style = "bold #5a5a5a"
+format = "[$symbol$branch]($style) "
+symbol = " "
+
+[git_status]
+style = "bold #a63d4f"
+format = '([$all_status$ahead_behind]($style) )'
+
+[rust]
+style = "#a68a5a"
+format = "[$symbol($version)]($style) "
+
+[golang]
+style = "#5a7a7a"
+format = "[$symbol($version)]($style) "
+
+[nodejs]
+style = "#5a7a5a"
+format = "[$symbol($version)]($style) "
+
+[python]
+style = "#4a5a7a"
+format = "[$symbol($version)]($style) "
+
+[cmd_duration]
+disabled = true

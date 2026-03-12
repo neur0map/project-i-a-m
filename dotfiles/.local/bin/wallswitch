@@ -1,0 +1,29 @@
+#!/bin/bash
+# Noir Wallpaper Switcher with smooth swww transitions
+
+WALLPAPER_DIR="$HOME/Pictures/Wallpapers"
+TRANSITION_TYPES=("wipe" "wave" "grow" "center" "any" "outer" "random")
+
+# Pick random transition
+TRANSITION=${TRANSITION_TYPES[$RANDOM % ${#TRANSITION_TYPES[@]}]}
+
+if [ "$1" = "--set" ] && [ -n "$2" ]; then
+    FILE="$2"
+else
+    # Pick random wallpaper
+    FILES=($(find "$WALLPAPER_DIR" -type f \( -name "*.jpg" -o -name "*.png" -o -name "*.jpeg" -o -name "*.webp" \)))
+    if [ ${#FILES[@]} -eq 0 ]; then
+        echo "No wallpapers found in $WALLPAPER_DIR"
+        exit 1
+    fi
+    FILE=${FILES[$RANDOM % ${#FILES[@]}]}
+fi
+
+swww img "$FILE" \
+    --transition-type $TRANSITION \
+    --transition-duration 2 \
+    --transition-fps 60 \
+    --transition-step 90 \
+    --transition-bezier .43,1.19,1,.4
+
+echo "Wallpaper set: $(basename "$FILE") (transition: $TRANSITION)"

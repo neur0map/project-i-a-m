@@ -1,0 +1,19 @@
+# Reference material (not for distribution)
+reference/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Editor/IDE
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Secrets (just in case)
+*.key
+*.pem
+*.env
+credentials*

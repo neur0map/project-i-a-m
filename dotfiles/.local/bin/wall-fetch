@@ -1,0 +1,44 @@
+#\!/bin/bash
+# Download dark wallpapers from wallhaven.cc
+# Usage: wall-fetch [count] [query]
+COUNT=${1:-5}
+QUERY=${2:-"dark minimalist abstract"}
+DIR="$HOME/Pictures/Wallpapers"
+mkdir -p "$DIR"
+
+echo "Fetching $COUNT wallpapers matching: $QUERY"
+
+# Use wallhaven API (no key needed for SFW)
+RESULT=$(curl -s "https://wallhaven.cc/api/v1/search?q=$QUERY&categories=100&purity=100&sorting=relevance&order=desc&ratios=16x9" 2>/dev/null)
+
+if [ -z "$RESULT" ]; then
+    echo "Failed to fetch from wallhaven API"
+    exit 1
+fi
+
+# Extract image URLs and download
+URLS=$(echo "$RESULT" | python3 -c "
+import json,sys
+data = json.load(sys.stdin)
+for w in data.get(\"data\", [])[:]:
+    print(w[\"path\"])
+" 2>/dev/null)
+
+if [ -z "$URLS" ]; then
+    echo "No results found"
+    exit 1
+fi
+
+i=0
+while IFS= read -r url; do
+    FILENAME="wallhaven-$(basename "$url")"
+    if [ \! -f "$DIR/$FILENAME" ]; then
+        echo "Downloading: $FILENAME"
+        curl -sL "$url" -o "$DIR/$FILENAME"
+        ((i++))
+    else
+        echo "Skipping (exists): $FILENAME"
+    fi
+done <<< "$URLS"
+
+echo "Downloaded $i new wallpapers to $DIR"

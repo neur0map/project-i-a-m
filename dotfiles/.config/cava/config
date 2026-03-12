@@ -1,0 +1,24 @@
+[general]
+framerate = 144
+bars = 48
+bar_width = 3
+bar_spacing = 1
+
+[input]
+method = pipewire
+source = auto
+
+[output]
+method = noncurses
+channels = stereo
+
+[color]
+gradient = 1
+gradient_count = 4
+gradient_color_1 = '#1c1c1c'
+gradient_color_2 = '#3a2030'
+gradient_color_3 = '#7a2e3c'
+gradient_color_4 = '#a63d4f'
+
+[smoothing]
+noise_reduction = 66

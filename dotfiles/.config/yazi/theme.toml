@@ -1,0 +1,72 @@
+[manager]
+cwd = { fg = "#a63d4f" }
+hovered = { fg = "#f0ecea", bg = "#1c1418" }
+preview_hovered = { underline = true }
+find_keyword = { fg = "#c45c6e", bold = true }
+find_position = { fg = "#a63d4f", italic = true }
+marker_selected = { fg = "#a63d4f", bg = "#a63d4f" }
+marker_copied = { fg = "#5a7a5a", bg = "#5a7a5a" }
+marker_cut = { fg = "#c45c6e", bg = "#c45c6e" }
+tab_active = { fg = "#0e0e0e", bg = "#a63d4f" }
+tab_inactive = { fg = "#d4d0ce", bg = "#1c1c1c" }
+border_symbol = "│"
+border_style = { fg = "#2a2a2a" }
+
+[status]
+separator_open = ""
+separator_close = ""
+separator_style = { fg = "#1c1c1c", bg = "#1c1c1c" }
+mode_normal = { fg = "#0e0e0e", bg = "#a63d4f", bold = true }
+mode_select = { fg = "#0e0e0e", bg = "#c45c6e", bold = true }
+mode_unset = { fg = "#0e0e0e", bg = "#5a5a5a", bold = true }
+progress_label = { fg = "#d4d0ce", bold = true }
+progress_normal = { fg = "#2a2a2a", bg = "#0e0e0e" }
+progress_error = { fg = "#c45c6e", bg = "#0e0e0e" }
+
+[input]
+border = { fg = "#a63d4f" }
+title = {}
+value = {}
+selected = { reversed = true }
+
+[select]
+border = { fg = "#a63d4f" }
+active = { fg = "#c45c6e" }
+inactive = {}
+
+[tasks]
+border = { fg = "#a63d4f" }
+title = {}
+hovered = { underline = true }
+
+[which]
+mask = { bg = "#1c1c1c" }
+cand = { fg = "#a63d4f" }
+rest = { fg = "#5a5a5a" }
+desc = { fg = "#d4d0ce" }
+separator = "  "
+separator_style = { fg = "#2a2a2a" }
+
+[help]
+on = { fg = "#c45c6e" }
+exec = { fg = "#d4d0ce" }
+desc = { fg = "#5a5a5a" }
+hovered = { bg = "#1c1418", bold = true }
+footer = { fg = "#d4d0ce", bg = "#0e0e0e" }
+
+[filetype]
+rules = [
+  { mime = "image/*", fg = "#a63d4f" },
+  { mime = "video/*", fg = "#7a2e3c" },
+  { mime = "audio/*", fg = "#a68a5a" },
+  { mime = "application/zip", fg = "#c45c6e" },
+  { mime = "application/gzip", fg = "#c45c6e" },
+  { mime = "application/x-tar", fg = "#c45c6e" },
+  { mime = "application/x-7z-compressed", fg = "#c45c6e" },
+  { mime = "application/x-rar", fg = "#c45c6e" },
+  { name = "*.md", fg = "#5a5a5a" },
+  { name = "*.json", fg = "#a68a5a" },
+  { name = "*.toml", fg = "#a68a5a" },
+  { name = "*.yaml", fg = "#a68a5a" },
+  { name = "*.yml", fg = "#a68a5a" },
+]

@@ -1,0 +1,7 @@
+#!/bin/bash
+# Auto rotate wallpapers every N minutes
+INTERVAL=${1:-30}
+while true; do
+    ~/.local/bin/wallswitch
+    sleep ${INTERVAL}m
+done
