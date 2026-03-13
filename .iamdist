@@ -9,6 +9,4 @@ shell
 scripts
 
 # Maintainer-only (excluded from distribution)
-
-# Maintainer-only (excluded from distribution)
 !rice/.config/ghostty/config

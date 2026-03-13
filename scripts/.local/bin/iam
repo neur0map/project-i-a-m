@@ -414,10 +414,17 @@ do_save() {
     # in their fork, so dist filtering doesn't apply to them.
 
     if is_upstream; then
-        # Collect changed config files (inside stow packages only)
+        # Collect changed config files (inside stow packages only,
+        # skip iam internals that change on every save)
         local config_files=()
         while IFS= read -r file; do
-            # Only show files inside stow package dirs
+            # Skip iam internals
+            case "$file" in
+                scripts/.local/bin/iam) continue ;;
+                .iamdist)               continue ;;
+                packages/native-packages.txt) continue ;;
+                packages/aur-packages.txt)    continue ;;
+            esac
             for pkg in "${STOW_PACKAGES[@]}"; do
                 if [[ "$file" == "$pkg/"* ]]; then
                     config_files+=("$file")
@@ -428,45 +435,31 @@ do_save() {
 
         if [[ ${#config_files[@]} -gt 0 ]]; then
             # Pre-select files that are already excluded
-            local already_excluded=()
+            local selected_args=()
             for f in "${config_files[@]}"; do
                 if is_excluded "$f"; then
-                    already_excluded+=("$f")
+                    selected_args+=(--selected "$f")
                 fi
             done
 
             dim "Which files should be EXCLUDED from users?"
             dim "  (select = maintainer-only, deselect = ships to users)"
+            dim "  Press Enter with none selected to ship everything."
             echo
 
+            # gum choose --no-limit exits non-zero when nothing is selected,
+            # so we temporarily disable errexit to handle that gracefully.
             local excluded_selection=""
-            if [[ ${#already_excluded[@]} -gt 0 ]]; then
-                # Pass pre-selected items
-                local selected_args=()
-                for ex in "${already_excluded[@]}"; do
-                    selected_args+=(--selected "$ex")
-                done
-                excluded_selection=$(printf '%s\n' "${config_files[@]}" | \
-                    gum choose --no-limit \
-                        --header "Space to toggle, Enter to confirm" \
-                        --cursor.foreground "$RED" \
-                        --header.foreground "$DIM" \
-                        "${selected_args[@]}" \
-                    || echo "")
-            else
-                excluded_selection=$(printf '%s\n' "${config_files[@]}" | \
-                    gum choose --no-limit \
-                        --header "Space to toggle, Enter to confirm (none selected = all ship)" \
-                        --cursor.foreground "$RED" \
-                        --header.foreground "$DIM" \
-                    || echo "")
-            fi
+            set +e
+            excluded_selection=$(gum choose --no-limit \
+                --header "Space to toggle, Enter to confirm" \
+                --cursor.foreground "$RED" \
+                --header.foreground "$DIM" \
+                "${selected_args[@]}" \
+                "${config_files[@]}" 2>/dev/null)
+            set -e
 
-            # Update .iamdist: rebuild exclude section
-            # Keep the header and package lines, rebuild excludes
-            local dist_header=""
-            dist_header=$(grep -v '^!' "$DIST_FILE" 2>/dev/null || echo "")
-            # Start with existing excludes for files NOT in this changeset
+            # Rebuild .iamdist: keep excludes for files NOT in this changeset
             local kept_excludes=""
             while IFS= read -r pattern; do
                 [[ -z "$pattern" ]] && continue
@@ -478,13 +471,12 @@ do_save() {
                         break
                     fi
                 done
-                # Keep excludes for files we didn't touch
                 if ! $in_changeset; then
                     kept_excludes+="!${pattern}"$'\n'
                 fi
             done < <(dist_excludes)
 
-            # Add newly selected excludes
+            # Add newly selected excludes from the picker
             local new_excludes=""
             if [[ -n "$excluded_selection" ]]; then
                 while IFS= read -r selected; do
@@ -493,25 +485,37 @@ do_save() {
                 done <<< "$excluded_selection"
             fi
 
-            # Write updated .iamdist
+            # Write .iamdist cleanly
+            local dist_pkgs
+            dist_pkgs=$(grep -v '^#' "$DIST_FILE" | grep -v '^!' | grep -v '^$')
+            local all_excludes="${kept_excludes}${new_excludes}"
+
             {
-                echo "$dist_header"
-                if [[ -n "$kept_excludes" || -n "$new_excludes" ]]; then
+                cat <<'HEADER'
+# .iamdist — managed by 'iam save'
+# Packages below are distributed to users.
+# Lines starting with ! are excluded (maintainer-only).
+# Do not edit manually — use 'iam save' to toggle exclusions.
+
+# Stow packages to distribute
+HEADER
+                echo "$dist_pkgs"
+
+                if [[ -n "$all_excludes" ]]; then
                     echo ""
                     echo "# Maintainer-only (excluded from distribution)"
-                    [[ -n "$kept_excludes" ]] && printf '%s' "$kept_excludes"
-                    [[ -n "$new_excludes" ]] && printf '%s' "$new_excludes"
+                    printf '%s' "$all_excludes"
                 fi
-            } > "$DIST_FILE"
+            } > "${DIST_FILE}.tmp"
+            mv "${DIST_FILE}.tmp" "$DIST_FILE"
 
             # Report
             local total_excluded
             total_excluded=$(grep -c '^!' "$DIST_FILE" 2>/dev/null || echo 0)
+            echo
             if [[ "$total_excluded" -gt 0 ]]; then
-                echo
                 ok "$total_excluded file(s) excluded from distribution"
             else
-                echo
                 ok "All config files will ship to users"
             fi
             echo
@@ -520,34 +524,40 @@ do_save() {
 
     # ── Commit type ──────────────────────────────────────────────
 
-    # Detect which areas were touched
+    # Detect which areas were touched (ignore iam internals)
     local changed_areas=""
     local all_files
     all_files=$(git -C "$IAM_DIR" status --porcelain | awk '{print $NF}')
 
-    echo "$all_files" | grep -q '^rice/'      && changed_areas+="rice "
-    echo "$all_files" | grep -q '^shell/'     && changed_areas+="shell "
-    echo "$all_files" | grep -q '^security/'  && changed_areas+="security "
-    echo "$all_files" | grep -q '^scripts/'   && changed_areas+="scripts "
-    echo "$all_files" | grep -q '^packages/'  && changed_areas+="packages "
-    echo "$all_files" | grep -q '^system/'    && changed_areas+="system "
-    echo "$all_files" | grep -q '^\.iamdist'  && changed_areas+="dist "
-    echo "$all_files" | grep -q 'README'      && changed_areas+="docs "
+    # Check each area — || true prevents set -e from killing on no match
+    echo "$all_files" | grep -q '^rice/'      && changed_areas+="rice "     || true
+    echo "$all_files" | grep -q '^shell/'     && changed_areas+="shell "    || true
+    echo "$all_files" | grep -q '^security/'  && changed_areas+="security " || true
+    echo "$all_files" | grep -q '^system/'    && changed_areas+="system "   || true
+    echo "$all_files" | grep -q 'README'      && changed_areas+="docs "     || true
 
-    changed_areas=$(echo "$changed_areas" | xargs | tr ' ' ', ')
+    # Only count scripts/ if something other than iam itself changed
+    echo "$all_files" | grep '^scripts/' | grep -qv 'scripts/\.local/bin/iam$' \
+        && changed_areas+="scripts " || true
+    # Only count packages/ if something other than snapshots changed
+    echo "$all_files" | grep '^packages/' \
+        | grep -qvE '(native-packages|aur-packages)\.txt$' \
+        && changed_areas+="packages " || true
+
+    # If only iam internals changed, label it as iam
+    if [[ -z "$changed_areas" ]]; then
+        changed_areas="iam"
+    else
+        changed_areas=$(echo "$changed_areas" | xargs | tr ' ' ', ')
+    fi
 
     local commit_type
     commit_type=$(gum choose \
         --header "What kind of change is this?" \
         --cursor.foreground "$RED" \
         --header.foreground "$DIM" \
-        "update    New or improved configs, packages, or tools" \
-        "fix       Bug fix or correction" \
-        "add       New config, script, or package group" \
-        "remove    Removed config or package" \
-        "docs      Documentation only")
+        "update" "fix" "add" "remove" "docs")
     [[ -z "$commit_type" ]] && return
-    commit_type="${commit_type%% *}"
 
     # ── Commit message ───────────────────────────────────────────
 
