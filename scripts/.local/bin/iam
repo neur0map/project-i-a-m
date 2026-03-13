@@ -400,36 +400,142 @@ do_save() {
         return
     fi
 
-    # Show what changed
+    # ── Show changes ─────────────────────────────────────────────
     echo
     dim "Changes detected:"
     echo
-    git -C "$IAM_DIR" --no-pager diff --stat
-    git -C "$IAM_DIR" --no-pager diff --stat --cached 2>/dev/null || true
     git -C "$IAM_DIR" status --short | while read -r line; do
         dim "  $line"
     done
     echo
 
-    # Build a human-readable summary of what changed
-    local changed_areas=""
-    local file_list
-    file_list=$(git -C "$IAM_DIR" status --porcelain | awk '{print $2}')
+    # ── Distribution filter ──────────────────────────────────────
+    # Only show for upstream maintainer — fork owners ship everything
+    # in their fork, so dist filtering doesn't apply to them.
+
+    if is_upstream; then
+        # Collect changed config files (inside stow packages only)
+        local config_files=()
+        while IFS= read -r file; do
+            # Only show files inside stow package dirs
+            for pkg in "${STOW_PACKAGES[@]}"; do
+                if [[ "$file" == "$pkg/"* ]]; then
+                    config_files+=("$file")
+                    break
+                fi
+            done
+        done < <(git -C "$IAM_DIR" status --porcelain | awk '{print $NF}')
+
+        if [[ ${#config_files[@]} -gt 0 ]]; then
+            # Pre-select files that are already excluded
+            local already_excluded=()
+            for f in "${config_files[@]}"; do
+                if is_excluded "$f"; then
+                    already_excluded+=("$f")
+                fi
+            done
+
+            dim "Which files should be EXCLUDED from users?"
+            dim "  (select = maintainer-only, deselect = ships to users)"
+            echo
+
+            local excluded_selection=""
+            if [[ ${#already_excluded[@]} -gt 0 ]]; then
+                # Pass pre-selected items
+                local selected_args=()
+                for ex in "${already_excluded[@]}"; do
+                    selected_args+=(--selected "$ex")
+                done
+                excluded_selection=$(printf '%s\n' "${config_files[@]}" | \
+                    gum choose --no-limit \
+                        --header "Space to toggle, Enter to confirm" \
+                        --cursor.foreground "$RED" \
+                        --header.foreground "$DIM" \
+                        "${selected_args[@]}" \
+                    || echo "")
+            else
+                excluded_selection=$(printf '%s\n' "${config_files[@]}" | \
+                    gum choose --no-limit \
+                        --header "Space to toggle, Enter to confirm (none selected = all ship)" \
+                        --cursor.foreground "$RED" \
+                        --header.foreground "$DIM" \
+                    || echo "")
+            fi
+
+            # Update .iamdist: rebuild exclude section
+            # Keep the header and package lines, rebuild excludes
+            local dist_header=""
+            dist_header=$(grep -v '^!' "$DIST_FILE" 2>/dev/null || echo "")
+            # Start with existing excludes for files NOT in this changeset
+            local kept_excludes=""
+            while IFS= read -r pattern; do
+                [[ -z "$pattern" ]] && continue
+                local in_changeset=false
+                for f in "${config_files[@]}"; do
+                    # shellcheck disable=SC2254
+                    if [[ "$f" == $pattern ]]; then
+                        in_changeset=true
+                        break
+                    fi
+                done
+                # Keep excludes for files we didn't touch
+                if ! $in_changeset; then
+                    kept_excludes+="!${pattern}"$'\n'
+                fi
+            done < <(dist_excludes)
+
+            # Add newly selected excludes
+            local new_excludes=""
+            if [[ -n "$excluded_selection" ]]; then
+                while IFS= read -r selected; do
+                    [[ -z "$selected" ]] && continue
+                    new_excludes+="!${selected}"$'\n'
+                done <<< "$excluded_selection"
+            fi
+
+            # Write updated .iamdist
+            {
+                echo "$dist_header"
+                if [[ -n "$kept_excludes" || -n "$new_excludes" ]]; then
+                    echo ""
+                    echo "# Maintainer-only (excluded from distribution)"
+                    [[ -n "$kept_excludes" ]] && printf '%s' "$kept_excludes"
+                    [[ -n "$new_excludes" ]] && printf '%s' "$new_excludes"
+                fi
+            } > "$DIST_FILE"
+
+            # Report
+            local total_excluded
+            total_excluded=$(grep -c '^!' "$DIST_FILE" 2>/dev/null || echo 0)
+            if [[ "$total_excluded" -gt 0 ]]; then
+                echo
+                ok "$total_excluded file(s) excluded from distribution"
+            else
+                echo
+                ok "All config files will ship to users"
+            fi
+            echo
+        fi
+    fi
+
+    # ── Commit type ──────────────────────────────────────────────
 
     # Detect which areas were touched
-    echo "$file_list" | grep -q '^rice/'      && changed_areas+="rice "
-    echo "$file_list" | grep -q '^shell/'     && changed_areas+="shell "
-    echo "$file_list" | grep -q '^security/'  && changed_areas+="security "
-    echo "$file_list" | grep -q '^scripts/'   && changed_areas+="scripts "
-    echo "$file_list" | grep -q '^packages/'  && changed_areas+="packages "
-    echo "$file_list" | grep -q '^system/'    && changed_areas+="system "
-    echo "$file_list" | grep -q '^\.iamdist'  && changed_areas+="dist "
-    echo "$file_list" | grep -q 'README'      && changed_areas+="docs "
+    local changed_areas=""
+    local all_files
+    all_files=$(git -C "$IAM_DIR" status --porcelain | awk '{print $NF}')
 
-    # Clean up: trim trailing space, join with commas
+    echo "$all_files" | grep -q '^rice/'      && changed_areas+="rice "
+    echo "$all_files" | grep -q '^shell/'     && changed_areas+="shell "
+    echo "$all_files" | grep -q '^security/'  && changed_areas+="security "
+    echo "$all_files" | grep -q '^scripts/'   && changed_areas+="scripts "
+    echo "$all_files" | grep -q '^packages/'  && changed_areas+="packages "
+    echo "$all_files" | grep -q '^system/'    && changed_areas+="system "
+    echo "$all_files" | grep -q '^\.iamdist'  && changed_areas+="dist "
+    echo "$all_files" | grep -q 'README'      && changed_areas+="docs "
+
     changed_areas=$(echo "$changed_areas" | xargs | tr ' ' ', ')
 
-    # Commit type selection
     local commit_type
     commit_type=$(gum choose \
         --header "What kind of change is this?" \
@@ -443,7 +549,8 @@ do_save() {
     [[ -z "$commit_type" ]] && return
     commit_type="${commit_type%% *}"
 
-    # Commit message — prefilled with context, user can edit
+    # ── Commit message ───────────────────────────────────────────
+
     local default_msg="${commit_type}(${changed_areas}): "
     local msg
     msg=$(gum input \
@@ -453,17 +560,19 @@ do_save() {
         --char-limit 120)
     [[ -z "$msg" ]] && die "No commit message. Aborted."
 
-    # Attribute to the authenticated user
+    # ── Author ───────────────────────────────────────────────────
+
     local author_name author_email
     author_name=$(gh api user --jq '.name // .login' 2>/dev/null || echo "$GH_USER")
     author_email=$(gh api user --jq '.email // empty' 2>/dev/null || echo "")
 
-    # Fall back to noreply email if user email is private
     if [[ -z "$author_email" ]]; then
         local gh_id
         gh_id=$(gh api user --jq '.id' 2>/dev/null || echo "0")
         author_email="${gh_id}+${GH_USER}@users.noreply.github.com"
     fi
+
+    # ── Commit & push ────────────────────────────────────────────
 
     gum confirm "Save and push?" || return
 

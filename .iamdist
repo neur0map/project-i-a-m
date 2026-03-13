@@ -1,14 +1,14 @@
-# .iamdist — what gets distributed to users
-# Lines are stow packages to include
-# Lines starting with ! are exclude patterns (relative to repo root)
-# Everything else stays maintainer-only (still syncs between your machines)
+# .iamdist — managed by 'iam save'
+# Packages below are distributed to users.
+# Lines starting with ! are excluded (maintainer-only).
+# Do not edit manually — use 'iam save' to toggle exclusions.
 
 # Stow packages to distribute
 rice
 shell
 scripts
 
-# Exclude from distribution (maintainer-only configs)
+# Maintainer-only (excluded from distribution)
+
+# Maintainer-only (excluded from distribution)
 !rice/.config/ghostty/config
-# !shell/.config/git/config
-# !rice/.config/niri/monitors.kdl
