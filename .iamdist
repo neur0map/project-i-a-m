@@ -1,0 +1,13 @@
+# .iamdist — what gets distributed to users
+# Lines are stow packages to include
+# Lines starting with ! are exclude patterns (relative to repo root)
+# Everything else stays maintainer-only (still syncs between your machines)
+
+# Stow packages to distribute
+rice
+shell
+scripts
+
+# Exclude from distribution (maintainer-only configs)
+# !shell/.config/git/config
+# !rice/.config/niri/monitors.kdl

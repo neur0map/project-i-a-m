@@ -1,82 +1,149 @@
 #!/usr/bin/env bash
 #
 # iam — Project I.A.M dotfile manager
-# Maintainer: sync/save/push configs across your machines
-# User: pull updates, install packages, apply configs
+#
+# Two modes of operation:
+#   Maintainer (push access) — full control: update, save, track, override
+#   User (no push access)    — consume updates: update, override
+#
+# Access is determined by `gh api` checking push permissions on the remote.
+# Users authenticate with `gh auth login` before first use.
 #
 set -euo pipefail
 
 # ── Config ────────────────────────────────────────────────────────
-# Auto-detect repo by following this script's symlink back
+#
+# Auto-detect repo root by following this script's symlink back.
 # scripts/.local/bin/iam → ../../.. → repo root
+#
 if [[ -z "${IAM_DIR:-}" ]]; then
     _self="$(readlink -f "$0")"
     IAM_DIR="$(cd "$(dirname "$_self")/../../.." && pwd)"
     unset _self
 fi
+
 STOW_PACKAGES=(rice shell security scripts)
 PACKAGES_DIR="$IAM_DIR/packages"
 REMOTE_URL="origin"
 BRANCH="main"
-MAINTAINER="neur0map"
+DIST_FILE="$IAM_DIR/.iamdist"
+
+# Derived at runtime — no hardcoded usernames
+GH_USER=""
+REPO_SLUG=""
+REPO_OWNER=""
 
 RED="#a63d4f"
 DIM="#666666"
 TEXT="#d4d0ce"
 BG="#0e0e0e"
 
-# ── Helpers ───────────────────────────────────────────────────────
+# ── Output ───────────────────────────────────────────────────────
+#
+# Styled terminal output using gum.
+#
 die()  { gum style --foreground "$RED" "  $*"; exit 1; }
 info() { gum style --foreground "$TEXT" "  $*"; }
 dim()  { gum style --foreground "$DIM" "  $*"; }
 ok()   { gum style --foreground 2 "  $*"; }
 
-has_push_access() {
-    local remote_url
-    remote_url=$(git -C "$IAM_DIR" remote get-url "$REMOTE_URL" 2>/dev/null || echo "")
-    [[ -z "$remote_url" ]] && return 1
-
-    # Extract owner/repo from URL (handles both https and ssh)
-    local repo_slug
-    repo_slug=$(echo "$remote_url" | sed -E 's#.*github\.com[:/]##; s/\.git$//')
-    [[ -z "$repo_slug" ]] && return 1
-
-    local permission
-    permission=$(gh api "repos/$repo_slug" --jq '.permissions.push' 2>/dev/null || echo "false")
-    [[ "$permission" == "true" ]]
+# ── Dependency checks ────────────────────────────────────────────
+#
+# Verify required commands are available before proceeding.
+#
+need() {
+    for cmd in "$@"; do
+        command -v "$cmd" &>/dev/null || die "$cmd not found. Install it first."
+    done
 }
 
-is_upstream() {
-    local remote_url
-    remote_url=$(git -C "$IAM_DIR" remote get-url "$REMOTE_URL" 2>/dev/null || echo "")
-    # Check if the remote points to the original repo (not a fork)
-    echo "$remote_url" | grep -qi "$MAINTAINER/project-i-a-m"
+# ── Authentication & access ──────────────────────────────────────
+#
+# gh auth is optional. Without it, users can still pull updates
+# from public repos. gh is only required for push access (save,
+# track) and enables richer identity/role detection.
+#
+
+gh_is_authed() {
+    command -v gh &>/dev/null && gh auth status &>/dev/null
 }
 
 require_gh_auth() {
+    # Hard gate — used by save/track which cannot work without auth.
     if ! command -v gh &>/dev/null; then
         die "GitHub CLI (gh) not found. Install with: sudo pacman -S github-cli"
     fi
     if ! gh auth status &>/dev/null; then
-        info "GitHub authentication required to receive updates."
+        info "GitHub authentication required for this action."
         echo
         dim "Run: gh auth login"
         echo
         gum confirm "Open gh auth login now?" && {
             gh auth login
         } || die "Authentication required. Run 'gh auth login' and try again."
-        # Verify it worked
         gh auth status &>/dev/null || die "Authentication failed. Try again."
         ok "Authenticated with GitHub"
         echo
     fi
+    detect_identity
 }
 
-need() {
-    for cmd in "$@"; do
-        command -v "$cmd" &>/dev/null || die "$cmd not found. Install it first."
-    done
+try_gh_auth() {
+    # Soft gate — try to detect identity if gh is available,
+    # but don't block if it's not. Used by update/status/menu.
+    detect_repo_slug
+    if gh_is_authed; then
+        detect_identity
+    fi
 }
+
+detect_repo_slug() {
+    # Extract owner/repo from the git remote URL. Works without gh.
+    [[ -n "$REPO_SLUG" ]] && return
+
+    local remote_url
+    remote_url=$(git -C "$IAM_DIR" remote get-url "$REMOTE_URL" 2>/dev/null || echo "")
+
+    if [[ -n "$remote_url" ]]; then
+        REPO_SLUG=$(echo "$remote_url" | sed -E 's#.*github\.com[:/]##; s/\.git$//')
+        REPO_OWNER="${REPO_SLUG%%/*}"
+    fi
+}
+
+detect_identity() {
+    # Resolve the GitHub username via gh api. Requires auth.
+    [[ -n "$GH_USER" ]] && return
+    detect_repo_slug
+    GH_USER=$(gh api user --jq '.login' 2>/dev/null || echo "")
+}
+
+has_push_access() {
+    # Check if the authenticated user has push permissions on the remote.
+    # Returns false if gh is not authed (safe default).
+    [[ -z "$REPO_SLUG" ]] && return 1
+    gh_is_authed || return 1
+
+    local permission
+    permission=$(gh api "repos/$REPO_SLUG" --jq '.permissions.push' 2>/dev/null || echo "false")
+    [[ "$permission" == "true" ]]
+}
+
+is_upstream() {
+    # Check if the remote points to the original (upstream) repo.
+    # Without gh auth, falls back to assuming upstream (safe default).
+    [[ -z "$REPO_SLUG" ]] && return 0
+
+    if gh_is_authed; then
+        local parent
+        parent=$(gh api "repos/$REPO_SLUG" --jq '.parent.full_name // empty' 2>/dev/null || echo "")
+        [[ -z "$parent" ]]
+    else
+        # Can't check — assume upstream (restricts to user menu, safe default)
+        return 0
+    fi
+}
+
+# ── UI ───────────────────────────────────────────────────────────
 
 header() {
     clear
@@ -88,14 +155,146 @@ header() {
         --width 40 \
         "P R O J E C T" "" "I . A . M"
     echo
+
+    # Show account and role info
+    if [[ -n "$GH_USER" ]]; then
+        local role="user"
+        if has_push_access 2>/dev/null; then
+            if is_upstream 2>/dev/null; then
+                role="maintainer"
+            else
+                role="fork owner"
+            fi
+        fi
+        dim "  @${GH_USER}  ·  ${role}  ·  ${REPO_SLUG:-local}"
+    elif [[ -n "$REPO_SLUG" ]]; then
+        dim "  not signed in  ·  ${REPO_SLUG}"
+    fi
+    echo
 }
 
-# ── Actions ───────────────────────────────────────────────────────
+# ── Distribution ─────────────────────────────────────────────────
+#
+# .iamdist controls what configs ship to users vs what stays
+# maintainer-only. Everything is tracked in git (syncs between
+# maintainer machines), but users only receive what's listed.
+#
+# Format:
+#   rice            — include this stow package
+#   !rice/.config/x — exclude this path from distribution
+#
 
+# Parse .iamdist: return stow packages to distribute
+dist_packages() {
+    [[ -f "$DIST_FILE" ]] || { echo "${STOW_PACKAGES[@]}"; return; }
+    grep -v '^#' "$DIST_FILE" | grep -v '^!' | grep -v '^$'
+}
+
+# Parse .iamdist: return exclude patterns (lines starting with !)
+dist_excludes() {
+    [[ -f "$DIST_FILE" ]] || return
+    grep '^!' "$DIST_FILE" | sed 's/^!//'
+}
+
+# Check if a repo-relative path matches any exclude pattern
+is_excluded() {
+    local file="$1"
+    local pattern
+    while IFS= read -r pattern; do
+        [[ -z "$pattern" ]] && continue
+        # shellcheck disable=SC2254
+        if [[ "$file" == $pattern ]]; then
+            return 0
+        fi
+    done < <(dist_excludes)
+    return 1
+}
+
+# ── Stow strategies ─────────────────────────────────────────────
+#
+# stow_all  — maintainer: symlink everything, no filtering
+# stow_dist — user: symlink only distributed configs, preserve
+#              user overrides (real files that aren't symlinks)
+#
+
+stow_all() {
+    cd "$IAM_DIR"
+    for pkg in "${STOW_PACKAGES[@]}"; do
+        [[ -d "$pkg" ]] || continue
+        stow --restow --target="$HOME" "$pkg" 2>/dev/null || true
+    done
+}
+
+stow_dist() {
+    cd "$IAM_DIR"
+    local pkg
+
+    while IFS= read -r pkg; do
+        [[ -z "$pkg" ]] && continue
+        [[ -d "$pkg" ]] || continue
+
+        # Step 1: Back up user overrides (real files where stow wants symlinks).
+        #         A real file means the user ran 'iam override' or manually
+        #         replaced the symlink — we must not clobber it.
+        local tmpdir
+        tmpdir=$(mktemp -d)
+
+        find "$pkg" -type f | while read -r repo_file; do
+            local rel="${repo_file#"$pkg"/}"
+            local home_file="$HOME/$rel"
+
+            if [[ -f "$home_file" && ! -L "$home_file" ]]; then
+                local save_path="$tmpdir/$rel"
+                mkdir -p "$(dirname "$save_path")"
+                cp -p "$home_file" "$save_path"
+                rm "$home_file"
+            fi
+        done
+
+        # Step 2: Stow the package (creates/updates symlinks)
+        stow --restow --target="$HOME" "$pkg" 2>/dev/null || true
+
+        # Step 3: Remove symlinks for excluded files (.iamdist ! patterns)
+        find "$pkg" -type f | while read -r repo_file; do
+            if is_excluded "$repo_file"; then
+                local rel="${repo_file#"$pkg"/}"
+                local home_file="$HOME/$rel"
+                [[ -L "$home_file" ]] && rm "$home_file"
+            fi
+        done
+
+        # Step 4: Restore user overrides (put real files back over symlinks)
+        if [[ -d "$tmpdir" ]]; then
+            find "$tmpdir" -type f 2>/dev/null | while read -r saved; do
+                local rel="${saved#"$tmpdir"/}"
+                local home_file="$HOME/$rel"
+                rm -f "$home_file"
+                mkdir -p "$(dirname "$home_file")"
+                cp -p "$saved" "$home_file"
+            done
+        fi
+
+        rm -rf "$tmpdir"
+    done < <(dist_packages)
+}
+
+# ═════════════════════════════════════════════════════════════════
+#  ACTIONS
+# ═════════════════════════════════════════════════════════════════
+
+# ── Update ───────────────────────────────────────────────────────
+#
+# Pull the latest changes from the remote, install any new or
+# missing packages, and apply configs.
+#
+# Maintainer: uses pull --rebase to preserve local work.
+# User: uses reset --hard for a clean sync to latest.
+# User overrides (real files) are preserved across updates.
+#
 do_update() {
-    header
     need git stow
-    require_gh_auth
+    try_gh_auth
+    header
 
     gum spin --spinner dot --title "Checking for updates..." -- \
         git -C "$IAM_DIR" fetch "$REMOTE_URL" "$BRANCH" --quiet
@@ -115,10 +314,8 @@ do_update() {
         gum confirm "Apply updates?" || { dim "Skipped."; return; }
 
         if has_push_access; then
-            # Maintainer / fork owner — preserve local changes
             git -C "$IAM_DIR" pull --rebase "$REMOTE_URL" "$BRANCH"
         else
-            # Consumer — clean reset to latest
             git -C "$IAM_DIR" reset --hard "$REMOTE_URL/$BRANCH" --quiet
         fi
         ok "Updated to latest version"
@@ -157,15 +354,15 @@ do_update() {
         ok "All packages installed"
     fi
 
-    # Restow all configs
-    cd "$IAM_DIR"
-    for pkg in "${STOW_PACKAGES[@]}"; do
-        [[ -d "$pkg" ]] || continue
-        stow --restow --target="$HOME" "$pkg" 2>/dev/null || true
-    done
+    # Apply configs
+    if has_push_access; then
+        stow_all
+    else
+        stow_dist
+    fi
     ok "Configs applied"
 
-    # System configs
+    # System configs (optional, requires sudo)
     if [[ -d "$IAM_DIR/system/etc" ]]; then
         gum confirm "Apply system configs (/etc)?" && {
             sudo cp -r "$IAM_DIR/system/etc/"* /etc/ 2>/dev/null || true
@@ -177,13 +374,18 @@ do_update() {
     ok "Update complete. You're running the latest I.A.M."
 }
 
+# ── Save ─────────────────────────────────────────────────────────
+#
+# Snapshot installed packages, commit all changes, and push to
+# the remote. Only available with push access (maintainer or
+# fork owner).
+#
 do_save() {
     header
     need git
     require_gh_auth
     has_push_access || die "No push access to this remote. Fork the repo on GitHub, update your remote, and try again."
 
-    # Snapshot packages
     info "Snapshotting installed packages..."
     mkdir -p "$PACKAGES_DIR"
     pacman -Qqen > "$PACKAGES_DIR/native-packages.txt"
@@ -191,7 +393,6 @@ do_save() {
 
     cd "$IAM_DIR"
 
-    # Check for changes
     local changes
     changes=$(git status --porcelain)
     if [[ -z "$changes" ]]; then
@@ -199,7 +400,6 @@ do_save() {
         return
     fi
 
-    # Show what changed
     echo
     dim "Changes detected:"
     echo
@@ -212,7 +412,6 @@ do_save() {
 
     gum confirm "Save and push these changes?" || return
 
-    # Stage, commit, push
     git -C "$IAM_DIR" add -A
 
     local summary
@@ -229,6 +428,12 @@ do_save() {
     ok "Saved and pushed."
 }
 
+# ── Track ────────────────────────────────────────────────────────
+#
+# Adopt an existing config file or directory into the repo.
+# Moves the file into the chosen stow package and symlinks it
+# back to its original location. Only available with push access.
+#
 do_add() {
     header
     need stow
@@ -239,17 +444,14 @@ do_add() {
     target=$(gum input --placeholder "Path to adopt (e.g. ~/.config/ghostty)")
     [[ -z "$target" ]] && die "No path given."
 
-    # Expand ~ and resolve
     target="${target/#\~/$HOME}"
     target="$(realpath "$target" 2>/dev/null || echo "$target")"
 
     [[ -e "$target" ]] || die "Path does not exist: $target"
 
-    # Figure out the relative path from $HOME
     local rel_path="${target#$HOME/}"
     [[ "$rel_path" == "$target" ]] && die "Path must be under \$HOME"
 
-    # Pick which stow package to add it to
     local stow_pkg
     stow_pkg=$(gum choose --header "Add to which group?" "${STOW_PACKAGES[@]}")
     [[ -z "$stow_pkg" ]] && die "No group selected."
@@ -258,7 +460,6 @@ do_add() {
     local dest_dir
     dest_dir=$(dirname "$dest")
 
-    # Move and restow
     mkdir -p "$dest_dir"
 
     if [[ -L "$target" ]]; then
@@ -276,9 +477,51 @@ do_add() {
     dim "Run 'iam' → Save to commit this change."
 }
 
-do_status() {
+# ── Override ─────────────────────────────────────────────────────
+#
+# Detach a config file from iam management. Replaces the symlink
+# with a real copy so the user can customize it freely. Future
+# updates will skip this file. Available to all users.
+#
+# To revert: delete the file and run 'iam update' — the symlink
+# will be recreated from the repo.
+#
+do_override() {
+    try_gh_auth
     header
+
+    local target
+    target=$(gum input --placeholder "Config to customize (e.g. ~/.config/ghostty/config)")
+    [[ -z "$target" ]] && die "No path given."
+
+    target="${target/#\~/$HOME}"
+    target="$(realpath -s "$target" 2>/dev/null || echo "$target")"
+
+    if [[ -L "$target" ]]; then
+        local real_source
+        real_source="$(readlink -f "$target")"
+        rm "$target"
+        cp -p "$real_source" "$target"
+        ok "Detached: $target"
+        dim "This file is now yours. Future updates won't overwrite it."
+        echo
+        dim "To go back to managed: rm the file and run 'iam update'"
+    elif [[ -f "$target" ]]; then
+        ok "Already a local file — not managed by iam"
+    else
+        die "File not found: $target"
+    fi
+}
+
+# ── Status ───────────────────────────────────────────────────────
+#
+# Show the current state: local changes, last save timestamp,
+# and whether the remote is ahead or behind. Available to all.
+#
+do_status() {
     need git
+    try_gh_auth
+    header
 
     cd "$IAM_DIR"
 
@@ -297,43 +540,45 @@ do_status() {
 
     echo
 
-    # Show last sync
     local last
     last=$(git log -1 --format="%ar — %s" 2>/dev/null || echo "never")
     dim "Last save: $last"
 
-    # Check if remote is ahead/behind
     git fetch "$REMOTE_URL" "$BRANCH" --quiet 2>/dev/null || true
     local behind ahead
     behind=$(git rev-list --count HEAD.."$REMOTE_URL/$BRANCH" 2>/dev/null || echo 0)
     ahead=$(git rev-list --count "$REMOTE_URL/$BRANCH"..HEAD 2>/dev/null || echo 0)
 
-    [[ "$behind" -gt 0 ]] && info "Remote is $behind commits ahead (run Sync)"
+    [[ "$behind" -gt 0 ]] && info "Remote is $behind commits ahead (run Update)"
     [[ "$ahead" -gt 0 ]] && info "Local is $ahead commits ahead (run Save)"
     [[ "$behind" -eq 0 && "$ahead" -eq 0 ]] && ok "In sync with remote"
 }
 
-# ── Main Menu ─────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════
+#  MAIN
+# ═════════════════════════════════════════════════════════════════
 
 main() {
     need gum
 
-    # Allow direct subcommand for scripting: iam update, iam save, etc.
+    # ── CLI subcommands (for scripting / direct use) ─────────────
     case "${1:-}" in
-        update)  do_update;  return ;;
-        save)    do_save;    return ;;
-        track)   do_add;     return ;;
-        status)  do_status;  return ;;
+        update)   do_update;   return ;;
+        save)     do_save;     return ;;
+        track)    do_add;      return ;;
+        override) do_override; return ;;
+        status)   do_status;   return ;;
         # Legacy aliases
-        sync)    do_update;  return ;;
-        add)     do_add;     return ;;
+        sync)     do_update;   return ;;
+        add)      do_add;      return ;;
     esac
 
+    # ── Interactive TUI menu ─────────────────────────────────────
+    try_gh_auth
     header
 
-    # Show different menus based on push access
-    require_gh_auth
     if has_push_access; then
+        # ── Maintainer / fork owner menu ─────────────────────────
         local choice
         choice=$(gum choose \
             --header "What do you want to do?" \
@@ -342,18 +587,20 @@ main() {
             "Update     Pull latest changes, install packages & apply configs" \
             "Save       Snapshot your system and push changes to your repo" \
             "Track      Start tracking a new config file or directory" \
+            "Override   Detach a config file to customize it locally" \
             "Status     Show sync state, local changes & version info" \
             "Quit")
 
         case "$choice" in
-            Update*) do_update ;;
-            Save*)   do_save ;;
-            Track*)  do_add ;;
-            Status*) do_status ;;
-            *)       exit 0 ;;
+            Update*)   do_update ;;
+            Save*)     do_save ;;
+            Track*)    do_add ;;
+            Override*) do_override ;;
+            Status*)   do_status ;;
+            *)         exit 0 ;;
         esac
     else
-        # No push access — pull-only update mode
+        # ── User menu (read-only) ───────────────────────────────
         if is_upstream; then
             dim "Read-only — fork on GitHub to save your own changes"
             echo
@@ -365,13 +612,15 @@ main() {
             --cursor.foreground "$RED" \
             --header.foreground "$DIM" \
             "Update     Pull latest changes, install packages & apply configs" \
+            "Override   Detach a config file to customize it locally" \
             "Status     Show current version and check for updates" \
             "Quit")
 
         case "$choice" in
-            Update*) do_update ;;
-            Status*) do_status ;;
-            *)       exit 0 ;;
+            Update*)   do_update ;;
+            Override*) do_override ;;
+            Status*)   do_status ;;
+            *)         exit 0 ;;
         esac
     fi
 }
