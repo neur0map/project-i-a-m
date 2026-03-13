@@ -381,9 +381,9 @@ do_update() {
 # fork owner).
 #
 do_save() {
-    header
     need git
     require_gh_auth
+    header
     has_push_access || die "No push access to this remote. Fork the repo on GitHub, update your remote, and try again."
 
     info "Snapshotting installed packages..."
@@ -400,6 +400,7 @@ do_save() {
         return
     fi
 
+    # Show what changed
     echo
     dim "Changes detected:"
     echo
@@ -410,22 +411,74 @@ do_save() {
     done
     echo
 
-    gum confirm "Save and push these changes?" || return
+    # Build a human-readable summary of what changed
+    local changed_areas=""
+    local file_list
+    file_list=$(git -C "$IAM_DIR" status --porcelain | awk '{print $2}')
+
+    # Detect which areas were touched
+    echo "$file_list" | grep -q '^rice/'      && changed_areas+="rice "
+    echo "$file_list" | grep -q '^shell/'     && changed_areas+="shell "
+    echo "$file_list" | grep -q '^security/'  && changed_areas+="security "
+    echo "$file_list" | grep -q '^scripts/'   && changed_areas+="scripts "
+    echo "$file_list" | grep -q '^packages/'  && changed_areas+="packages "
+    echo "$file_list" | grep -q '^system/'    && changed_areas+="system "
+    echo "$file_list" | grep -q '^\.iamdist'  && changed_areas+="dist "
+    echo "$file_list" | grep -q 'README'      && changed_areas+="docs "
+
+    # Clean up: trim trailing space, join with commas
+    changed_areas=$(echo "$changed_areas" | xargs | tr ' ' ', ')
+
+    # Commit type selection
+    local commit_type
+    commit_type=$(gum choose \
+        --header "What kind of change is this?" \
+        --cursor.foreground "$RED" \
+        --header.foreground "$DIM" \
+        "update    New or improved configs, packages, or tools" \
+        "fix       Bug fix or correction" \
+        "add       New config, script, or package group" \
+        "remove    Removed config or package" \
+        "docs      Documentation only")
+    [[ -z "$commit_type" ]] && return
+    commit_type="${commit_type%% *}"
+
+    # Commit message — prefilled with context, user can edit
+    local default_msg="${commit_type}(${changed_areas}): "
+    local msg
+    msg=$(gum input \
+        --placeholder "Describe what changed" \
+        --value "$default_msg" \
+        --width 72 \
+        --char-limit 120)
+    [[ -z "$msg" ]] && die "No commit message. Aborted."
+
+    # Attribute to the authenticated user
+    local author_name author_email
+    author_name=$(gh api user --jq '.name // .login' 2>/dev/null || echo "$GH_USER")
+    author_email=$(gh api user --jq '.email // empty' 2>/dev/null || echo "")
+
+    # Fall back to noreply email if user email is private
+    if [[ -z "$author_email" ]]; then
+        local gh_id
+        gh_id=$(gh api user --jq '.id' 2>/dev/null || echo "0")
+        author_email="${gh_id}+${GH_USER}@users.noreply.github.com"
+    fi
+
+    gum confirm "Save and push?" || return
 
     git -C "$IAM_DIR" add -A
 
-    local summary
-    summary=$(git -C "$IAM_DIR" diff --cached --stat | tail -1 | sed 's/^ *//')
-    local msg
-    msg="iam: ${summary:-sync}"
-
     gum spin --spinner dot --title "Saving..." -- \
-        git -C "$IAM_DIR" commit -m "$msg"
+        git -C "$IAM_DIR" commit \
+            --author="$author_name <$author_email>" \
+            -m "$msg"
     gum spin --spinner dot --title "Pushing..." -- \
         git -C "$IAM_DIR" push "$REMOTE_URL" "$BRANCH"
 
     echo
     ok "Saved and pushed."
+    dim "  $msg"
 }
 
 # ── Track ────────────────────────────────────────────────────────

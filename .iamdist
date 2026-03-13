@@ -9,5 +9,6 @@ shell
 scripts
 
 # Exclude from distribution (maintainer-only configs)
+!rice/.config/ghostty/config
 # !shell/.config/git/config
 # !rice/.config/niri/monitors.kdl
