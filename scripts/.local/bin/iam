@@ -434,30 +434,68 @@ do_save() {
         done < <(git -C "$IAM_DIR" status --porcelain | awk '{print $NF}')
 
         if [[ ${#config_files[@]} -gt 0 ]]; then
-            # Pre-select files that are already excluded
-            local selected_args=()
+            dim "Which files should be EXCLUDED from users?"
+            dim "  Space = toggle, Enter = confirm"
+            echo
+
+            # Build comma-separated list of already-excluded files
+            local preselected=""
             for f in "${config_files[@]}"; do
                 if is_excluded "$f"; then
-                    selected_args+=(--selected "$f")
+                    [[ -n "$preselected" ]] && preselected+=","
+                    preselected+="$f"
                 fi
             done
 
-            dim "Which files should be EXCLUDED from users?"
-            dim "  (select = maintainer-only, deselect = ships to users)"
-            dim "  Press Enter with none selected to ship everything."
-            echo
+            # fzf multi-select with live diff preview
+            # Navigate with ↑↓, Tab to toggle, Enter to confirm, Esc to ship all
+            # Preview pane shows the git diff for the highlighted file
+            need fzf
 
-            # gum choose --no-limit exits non-zero when nothing is selected,
-            # so we temporarily disable errexit to handle that gracefully.
-            local excluded_selection=""
+            # Build input: mark already-excluded files so user sees current state
+            local fzf_input=""
+            for f in "${config_files[@]}"; do
+                if is_excluded "$f"; then
+                    fzf_input+="[excluded] $f"$'\n'
+                else
+                    fzf_input+="[ships]    $f"$'\n'
+                fi
+            done
+
+            local excluded_raw=""
             set +e
-            excluded_selection=$(gum choose --no-limit \
-                --header "Space to toggle, Enter to confirm" \
-                --cursor.foreground "$RED" \
-                --header.foreground "$DIM" \
-                "${selected_args[@]}" \
-                "${config_files[@]}" 2>/dev/null)
+            excluded_raw=$(printf '%s' "$fzf_input" | \
+                fzf --multi \
+                    --header "Tab = toggle · Enter = confirm · Esc = ship all
+Selected files will be EXCLUDED from users (maintainer-only)
+Ctrl-A = toggle all" \
+                    --preview "echo {} | sed 's/^\[.*\] *//' | xargs git -C '$IAM_DIR' diff HEAD --" \
+                    --preview-window "right:60%:wrap" \
+                    --preview-label " diff " \
+                    --prompt "exclude> " \
+                    --color "fg:#d4d0ce,bg:#0e0e0e,hl:#a63d4f,fg+:#f0ecea,bg+:#1c1c1c,hl+:#c45c6e,pointer:#a63d4f,marker:#a63d4f,prompt:#a63d4f,header:#666666,border:#333333" \
+                    --marker "✗ " \
+                    --pointer "▸" \
+                    --bind "ctrl-a:toggle-all" \
+                    --border rounded \
+                    --no-info \
+                    2>/dev/null)
             set -e
+
+            # Strip the [excluded]/[ships] prefix to get clean file paths
+            local excluded_selection=""
+            if [[ -n "$excluded_raw" ]]; then
+                while IFS= read -r line; do
+                    [[ -z "$line" ]] && continue
+                    local clean
+                    clean=$(echo "$line" | sed 's/^\[.*\] *//')
+                    excluded_selection+="$clean"$'\n'
+                    ok "  $clean → maintainer-only"
+                done <<< "$excluded_raw"
+            else
+                dim "  All files will ship to users"
+            fi
+            echo
 
             # Rebuild .iamdist: keep excludes for files NOT in this changeset
             local kept_excludes=""

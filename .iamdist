@@ -9,4 +9,58 @@ shell
 scripts
 
 # Maintainer-only (excluded from distribution)
-!rice/.config/ghostty/config
+!Usage: gum choose [<options> ...] [flags]
+!Choose an option from a list of choices
+!Arguments:
+!  [<options> ...]    Options to choose from.
+!Flags:
+!  -h, --help                      Show context-sensitive help.
+!  -v, --version                   Print the version number
+!      --ordered                   Maintain the order of the selected options
+!                                  ($GUM_CHOOSE_ORDERED)
+!      --height=10                 Height of the list ($GUM_CHOOSE_HEIGHT)
+!      --cursor="> "               Prefix to show on item that corresponds to the
+!                                  cursor position ($GUM_CHOOSE_CURSOR)
+!      --[no-]show-help            Show help keybinds ($GUM_CHOOSE_SHOW_HELP)
+!      --timeout=0s                Timeout until choose returns selected element
+!                                  ($GUM_CHOOSE_TIMEOUT)
+!      --header="Choose:"          Header value ($GUM_CHOOSE_HEADER)
+!      --cursor-prefix="• "        Prefix to show on the cursor item (hidden if
+!                                  limit is 1) ($GUM_CHOOSE_CURSOR_PREFIX)
+!      --selected-prefix="✓ "      Prefix to show on selected items (hidden if
+!                                  limit is 1) ($GUM_CHOOSE_SELECTED_PREFIX)
+!      --unselected-prefix="• "
+!                                  Prefix to show on unselected items (hidden if
+!                                  limit is 1) ($GUM_CHOOSE_UNSELECTED_PREFIX)
+!      --selected=,...             Options that should start as selected (selects
+!                                  all if given *) ($GUM_CHOOSE_SELECTED)
+!      --input-delimiter="\n"      Option delimiter when reading from STDIN
+!                                  ($GUM_CHOOSE_INPUT_DELIMITER)
+!      --output-delimiter="\n"     Option delimiter when writing to STDOUT
+!                                  ($GUM_CHOOSE_OUTPUT_DELIMITER)
+!      --label-delimiter=""        Allows to set a delimiter,
+!                                  so options can be set as label:value
+!                                  ($GUM_CHOOSE_LABEL_DELIMITER)
+!      --[no-]strip-ansi           Strip ANSI sequences when reading from STDIN
+!                                  ($GUM_CHOOSE_STRIP_ANSI)
+!Selection
+!  --limit=1          Maximum number of options to pick
+!  --no-limit         Pick unlimited number of options (ignores limit)
+!  --select-if-one    Select the given option if there is only one
+!Style Flags
+!  --padding="0 0"                Padding ($GUM_CHOOSE_PADDING)
+!  --cursor.foreground="212"      Foreground Color
+!                                 ($GUM_CHOOSE_CURSOR_FOREGROUND)
+!  --cursor.background=""         Background Color
+!                                 ($GUM_CHOOSE_CURSOR_BACKGROUND)
+!  --header.foreground="99"       Foreground Color
+!                                 ($GUM_CHOOSE_HEADER_FOREGROUND)
+!  --header.background=""         Background Color
+!                                 ($GUM_CHOOSE_HEADER_BACKGROUND)
+!  --item.foreground=""           Foreground Color ($GUM_CHOOSE_ITEM_FOREGROUND)
+!  --item.background=""           Background Color ($GUM_CHOOSE_ITEM_BACKGROUND)
+!  --selected.foreground="212"    Foreground Color
+!                                 ($GUM_CHOOSE_SELECTED_FOREGROUND)
+!  --selected.background=""       Background Color
+!                                 ($GUM_CHOOSE_SELECTED_BACKGROUND)
+!shell/.config/fish/config.fish

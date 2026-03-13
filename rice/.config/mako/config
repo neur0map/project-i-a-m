@@ -8,7 +8,7 @@ padding=12
 margin=8
 width=350
 height=150
-default-timeout=5000
+default-timeout=4000
 layer=overlay
 anchor=top-right
 
