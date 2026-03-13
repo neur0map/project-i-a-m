@@ -64,3 +64,4 @@ scripts
 !  --selected.background=""       Background Color
 !                                 ($GUM_CHOOSE_SELECTED_BACKGROUND)
 !shell/.config/fish/config.fish
+!rice/.config/niri/config.kdl

@@ -599,14 +599,33 @@ HEADER
 
     # ── Commit message ───────────────────────────────────────────
 
-    local default_msg="${commit_type}(${changed_areas}): "
+    # Auto-generate a summary from changed file names (strip paths, dedupe)
+    local auto_summary=""
+    auto_summary=$(git -C "$IAM_DIR" status --porcelain | awk '{print $NF}' \
+        | grep -v '^\.' \
+        | grep -v '^scripts/\.local/bin/iam$' \
+        | grep -v '^packages/\(native-packages\|aur-packages\)\.txt$' \
+        | sed 's|.*/||' \
+        | sort -u \
+        | paste -sd ', ' -)
+
+    local prefix="${commit_type}(${changed_areas})"
+    local default_msg="${prefix}: ${auto_summary}"
+
+    dim "Auto-generated message (edit or press Enter to accept):"
+    echo
+
     local msg
     msg=$(gum input \
         --placeholder "Describe what changed" \
         --value "$default_msg" \
-        --width 72 \
+        --width 80 \
         --char-limit 120)
-    [[ -z "$msg" ]] && die "No commit message. Aborted."
+
+    # If user cleared everything or just left the prefix with no description
+    if [[ -z "$msg" || "$msg" == "${prefix}: " || "$msg" == "${prefix}:" ]]; then
+        msg="${prefix}: ${auto_summary}"
+    fi
 
     # ── Author ───────────────────────────────────────────────────
 

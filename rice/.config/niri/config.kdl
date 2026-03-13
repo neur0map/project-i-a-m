@@ -160,6 +160,8 @@ binds {
     Mod+E { spawn "thunar"; }
     Mod+Z { spawn "zeditor"; }
     Mod+T { spawn "ghostty" "-e" "btop"; }
+    Mod+Y { spawn "brave" "--app=https://youtube.com" "--enable-features=UseOzonePlatform" "--ozone-platform=wayland"; }
+    Mod+Shift+Y { spawn "brave" "--app=https://music.youtube.com" "--enable-features=UseOzonePlatform" "--ozone-platform=wayland"; }
 
     // === Noctalia Controls ===
     Mod+N { spawn "qs" "ipc" "-c" "noctalia-shell" "call" "controlCenter" "toggle"; }
